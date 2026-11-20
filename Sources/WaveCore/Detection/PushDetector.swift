@@ -2,7 +2,11 @@ import Foundation
 
 /// A detected (or rejected) gesture candidate.
 public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
-    public enum Kind: String, Sendable, Codable { case push }
+    public enum Kind: String, Sendable, Codable, CaseIterable {
+        case push
+        case swipeLeft = "swipe left"
+        case swipeRight = "swipe right"
+    }
 
     public enum Outcome: String, Sendable, Codable {
         case accepted
@@ -12,6 +16,7 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         case tooSlow = "too slow"
         case weak = "too weak"
         case noReturn = "no return movement"
+        case oneSided = "seen by one speaker only"
     }
 
     public var id = UUID()
@@ -27,6 +32,10 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
     public var towardPeakVelocity: Float
     public var awayPeakVelocity: Float
     public var maxReferenceDB: Float
+    /// When the motion turned from toward to away (start of the away phase).
+    public var reversal: Double?
+    /// Stereo layout: right-speaker reversal minus left-speaker reversal (s).
+    public var lag: Double?
 
     public var duration: Double { end - start }
     public var isAccepted: Bool { outcome == .accepted }
@@ -34,10 +43,12 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
     /// One-line description, e.g. "PUSH ✓  conf 0.82  ▲+18.1 ▼+16.4 dB  0.46 s  v +0.71/−0.66 m/s".
     public var summary: String {
         let mark = isAccepted ? "✓" : "✗ \(outcome.rawValue)"
-        return String(
+        var s = String(
             format: "%@ %@  conf %.2f  ▲%+.1f ▼%+.1f dB  %.2f s  v %+.2f/%+.2f m/s",
             kind.rawValue.uppercased(), mark, confidence, towardPeakDB, awayPeakDB, duration,
             towardPeakVelocity, awayPeakVelocity)
+        if let lag { s += String(format: "  lag %+.0f ms", lag * 1000) }
+        return s
     }
 }
 
@@ -53,6 +64,7 @@ public final class PushDetector {
     private var towardStart = 0.0, towardLast = 0.0
     private var towardPeak: Float = 0, towardVelocity: Float = 0
     private var awayLast = 0.0
+    private var awayStart = 0.0
     private var awayPeak: Float = 0, awayVelocity: Float = 0
     private var maxReference: Float = 0
     private var lastInput = -Double.infinity
@@ -103,6 +115,7 @@ public final class PushDetector {
             maxReference = max(maxReference, f.referenceDB)
             if f.awayDB >= on && f.awayDB - f.towardDB >= config.dominanceDB && f.velocity <= -config.minVelocity {
                 phase = .away
+                awayStart = f.time
                 awayLast = f.time
                 awayPeak = f.awayDB; awayVelocity = f.velocity
                 return nil
@@ -183,6 +196,7 @@ public final class PushDetector {
         GestureEvent(
             kind: .push, outcome: outcome, pilotHz: pilotHz, start: towardStart, end: end,
             confidence: confidence, towardPeakDB: towardPeak, awayPeakDB: awayPeak,
-            towardPeakVelocity: towardVelocity, awayPeakVelocity: awayVelocity, maxReferenceDB: maxReference)
+            towardPeakVelocity: towardVelocity, awayPeakVelocity: awayVelocity, maxReferenceDB: maxReference,
+            reversal: awayPeak > 0 ? awayStart : nil)
     }
 }

@@ -1,0 +1,75 @@
+import Foundation
+import Testing
+@testable import WaveCore
+
+/// Two pilots (left speaker 18.75 kHz, right 19.5 kHz) with a geometric hand model.
+@Suite("Stereo: push vs swipes")
+struct SwipeTests {
+    static let layout = PilotLayout.stereo(left: 18_750, right: 19_500)
+
+    func run(_ hand: @escaping (Double) -> SIMD3<Double>, duration: Double = 3.5, fusion: FusionConfig = FusionConfig()) -> [GestureEvent] {
+        let scene = SyntheticScene(duration: duration)
+        let x = scene.renderStereo(left: 18_750, right: 19_500, hand: hand)
+        let pipeline = GesturePipeline(sampleRate: SyntheticScene.sampleRate, channels: 1, layout: Self.layout, fusion: fusion)
+        var events: [GestureEvent] = []
+        var i = 0
+        while i < x.count {
+            let end = min(x.count, i + 480)
+            events += pipeline.process([Array(x[i..<end])]).events
+            i = end
+        }
+        return events
+    }
+
+    @Test func stereoBandsDoNotOverlap() {
+        let p = GesturePipeline(sampleRate: 48_000, channels: 1, layout: Self.layout)
+        #expect(p.bands[0].upperRange.upperBound < p.bands[1].lowerRange.lowerBound)
+    }
+
+    @Test func stillHandProducesNothing() {
+        #expect(run { _ in SyntheticScene.restingHand }.isEmpty)
+    }
+
+    @Test func pushIsAPush() throws {
+        let accepted = run(SyntheticScene.pushPath(start: 1.5)).filter(\.isAccepted)
+        try #require(accepted.count == 1)
+        #expect(accepted[0].kind == .push)
+        #expect(abs(accepted[0].lag ?? 1) < FusionConfig().minSwipeLag)
+    }
+
+    @Test func swipeLeftToRightIsSwipeRight() throws {
+        let accepted = run(SyntheticScene.swipePath(start: 1.5, speed: 1.0)).filter(\.isAccepted)
+        try #require(accepted.count == 1)
+        #expect(accepted[0].kind == .swipeRight)
+        #expect((accepted[0].lag ?? 0) > 0.045)
+    }
+
+    @Test func swipeRightToLeftIsSwipeLeft() throws {
+        let accepted = run(SyntheticScene.swipePath(start: 1.5, speed: -1.0)).filter(\.isAccepted)
+        try #require(accepted.count == 1)
+        #expect(accepted[0].kind == .swipeLeft)
+    }
+
+    @Test func inversionFlipsDirection() throws {
+        var fusion = FusionConfig()
+        fusion.invertSwipeDirection = true
+        let accepted = run(SyntheticScene.swipePath(start: 1.5, speed: 1.0), fusion: fusion).filter(\.isAccepted)
+        try #require(accepted.count == 1)
+        #expect(accepted[0].kind == .swipeLeft)
+    }
+
+    @Test func fusionPairsAndTimesOut() {
+        let fusion = GestureFusion()
+        func e(_ rev: Double) -> GestureEvent {
+            GestureEvent(kind: .push, outcome: .accepted, pilotHz: 1, start: rev - 0.2, end: rev + 0.2, confidence: 0.8,
+                         towardPeakDB: 15, awayPeakDB: 15, towardPeakVelocity: 0.8, awayPeakVelocity: -0.8,
+                         maxReferenceDB: 0, reversal: rev)
+        }
+        #expect(fusion.add(e(1.00), band: 0).isEmpty)
+        let swipe = fusion.add(e(1.12), band: 1)
+        #expect(swipe.first?.kind == .swipeRight)
+        #expect(fusion.add(e(2.0), band: 1).isEmpty)
+        #expect(fusion.flush(now: 2.3).isEmpty)
+        #expect(fusion.flush(now: 2.6).first?.outcome == .oneSided)
+    }
+}

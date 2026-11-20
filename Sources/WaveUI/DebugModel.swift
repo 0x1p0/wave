@@ -29,6 +29,13 @@ public final class DebugModel {
     /// Bumped whenever `history` changes (drives redraws).
     public private(set) var revision = 0
 
+    /// Called for every new gesture event (the menu bar app uses this to act on gestures while the debug
+    /// window has taken over listening).
+    @ObservationIgnored public var onEvent: ((GestureEvent) -> Void)?
+    /// Engine settings supplied by a host app (pilot layout, calibrated detector). The level and
+    /// sensitivity controls still apply on top.
+    @ObservationIgnored public var baseSettings: EngineSettings?
+
     @ObservationIgnored public let history = FeatureHistory()
     @ObservationIgnored private var engine: SonarEngine?
     @ObservationIgnored private var lastIdleShown = 0.0
@@ -38,14 +45,14 @@ public final class DebugModel {
     @ObservationIgnored public var maxRedrawRate = 20.0
 
     public var detectorConfig: DetectorConfig {
-        var c = DetectorConfig()
+        var c = baseSettings?.detector ?? DetectorConfig()
         c.sensitivity = sensitivity
         return c
     }
 
     public var settings: EngineSettings {
-        var s = EngineSettings()
-        s.pilots = [pilotHz]
+        var s = baseSettings ?? EngineSettings()
+        if baseSettings == nil { s.pilots = [pilotHz] }
         s.level.referenceAmplitudeDBFS = amplitudeDBFS
         s.detector = detectorConfig
         return s
@@ -139,6 +146,7 @@ public final class DebugModel {
             inputIdle = idle
         }
         if !out.events.isEmpty {
+            out.events.forEach { onEvent?($0) }
             events.insert(contentsOf: out.events.reversed(), at: 0)
             if events.count > 500 { events.removeLast(events.count - 500) }
         }

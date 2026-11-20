@@ -178,6 +178,15 @@ do {
         print("Wrote \(url.path) (\(SyntheticScene.demoScript))")
         exitCode = 0
 
+    case "media":
+        // Which other processes are playing audio (for "only listen while media is playing").
+        if let list = MediaActivity.activeOutputProcesses() {
+            print(list.isEmpty ? "Nothing else is playing audio." : "Playing audio: " + list.joined(separator: ", "))
+        } else {
+            print("Can't tell on this macOS version.")
+        }
+        exitCode = 0
+
     case "config":
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

@@ -40,6 +40,8 @@ public struct BandFeatures: Sendable, Equatable, Codable {
 public final class FeatureExtractor {
     public let band: PilotBand
     public let referenceBins: ClosedRange<Int>
+    public let referenceLower: Bool
+    public let referenceUpper: Bool
     public let frameRate: Double
     public let warmUp: Double
 
@@ -52,8 +54,12 @@ public final class FeatureExtractor {
     private let alphaQuiet: Float
     private let alphaSlow: Float
 
-    public init(band: PilotBand, frameRate: Double, warmUp: Double = 0.6, referenceBins: ClosedRange<Int> = 40...60) {
+    public init(band: PilotBand, frameRate: Double, warmUp: Double = 0.6, referenceBins: ClosedRange<Int> = 40...60,
+                referenceLower: Bool = true, referenceUpper: Bool = true) {
+        precondition(referenceLower || referenceUpper)
         self.band = band
+        self.referenceLower = referenceLower
+        self.referenceUpper = referenceUpper
         self.frameRate = frameRate
         self.warmUp = warmUp
         self.referenceBins = referenceBins
@@ -99,8 +105,8 @@ public final class FeatureExtractor {
             if s > 0 { strongExcess += s; weighted += s * Float(k - kp) }
         }
         for offset in referenceBins {
-            ref += p[kp - offset] + p[kp + offset]
-            refBase += base(kp - offset) + base(kp + offset)
+            if referenceLower { ref += p[kp - offset]; refBase += base(kp - offset) }
+            if referenceUpper { ref += p[kp + offset]; refBase += base(kp + offset) }
         }
 
         let towardDB = (up / max(upBase, 1e-30)).dB

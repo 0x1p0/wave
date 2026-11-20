@@ -2,11 +2,18 @@ import AudioToolbox
 import Foundation
 
 public struct EngineSettings: Sendable, Equatable {
-    /// Pilot frequencies (Hz). M1 uses one; each plays on both speakers.
-    public var pilots: [Double] = [19_000]
+    /// One tone on both speakers (push), or one per speaker (push + swipes).
+    public var layout = PilotLayout.single(19_000)
     public var level = PilotLevelPolicy()
     public var detector = DetectorConfig()
+    public var fusion = FusionConfig()
     public init() {}
+
+    /// Convenience for single-pilot callers.
+    public var pilots: [Double] {
+        get { layout.frequencies }
+        set { layout = PilotLayout(pilots: newValue) }
+    }
 }
 
 public enum EngineStatus: Sendable, Equatable {
@@ -77,6 +84,7 @@ public final class SonarEngine: @unchecked Sendable {
     private var micSilent = false
     private var recorder: RecordingWriter?
     private var wantsDisplay = false
+    private var deliverAllFrames = true
     private var pendingFrames: [PipelineFrame] = []
     private var pendingEvents: [GestureEvent] = []
     private var savedRecording: URL?
@@ -124,6 +132,12 @@ public final class SonarEngine: @unchecked Sendable {
         }
     }
 
+    /// When false, each output carries only the newest frame (enough for status meters). Saves work when
+    /// no plot is visible.
+    public func setFrameDelivery(all: Bool) {
+        queue.async { self.deliverAllFrames = all }
+    }
+
     public func startRecording(directory: URL = RecordingWriter.defaultDirectory, label: String? = nil) {
         queue.async { self.beginRecording(directory: directory, label: label) }
     }
@@ -147,7 +161,8 @@ public final class SonarEngine: @unchecked Sendable {
             let capture = try MicCapture(device: mic)
             let pilot = try PilotPlayer(device: spk)
             let pipeline = GesturePipeline(
-                sampleRate: capture.sampleRate, channels: capture.channels, pilots: s.pilots, detector: s.detector)
+                sampleRate: capture.sampleRate, channels: capture.channels, layout: s.layout, detector: s.detector,
+                fusion: s.fusion)
             pipeline.wantsDisplay = wantsDisplay
             speakers = spk
             readSpeakerLevel()
@@ -173,9 +188,10 @@ public final class SonarEngine: @unchecked Sendable {
         do {
             let recording = try LoadedRecording.load(url)
             settings = s
-            let pilots = recording.metadata?.pilots ?? s.pilots
+            let layout = recording.metadata.map { PilotLayout(pilots: $0.pilots) } ?? s.layout
             let pipeline = GesturePipeline(
-                sampleRate: recording.sampleRate, channels: recording.channels.count, pilots: pilots, detector: s.detector)
+                sampleRate: recording.sampleRate, channels: recording.channels.count, layout: layout, detector: s.detector,
+                fusion: s.fusion)
             pipeline.wantsDisplay = wantsDisplay
             self.pipeline = pipeline
             replay = ReplayState(
@@ -216,11 +232,12 @@ public final class SonarEngine: @unchecked Sendable {
         let old = settings
         settings = s
         guard let pipeline else { return }
-        if s.pilots != old.pilots, replay == nil {
+        if s.layout != old.layout, replay == nil {
             startLive(s)  // new bands: rebuild the pipeline
             return
         }
         if s.detector != old.detector { pipeline.detectorConfig = s.detector }
+        if s.fusion != old.fusion { pipeline.fusionConfig = s.fusion }
         if s.level != old.level { refreshLevel(force: true) }
     }
 
@@ -380,7 +397,7 @@ public final class SonarEngine: @unchecked Sendable {
     private func deliver() {
         lastDelivery = Self.now()
         var out = EngineOutput()
-        out.frames = pendingFrames
+        out.frames = deliverAllFrames ? pendingFrames : Array(pendingFrames.suffix(1))
         out.events = pendingEvents
         out.status = status
         out.bands = pipeline?.bands ?? []
@@ -402,7 +419,12 @@ public final class SonarEngine: @unchecked Sendable {
 
     private static func now() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
     private static func linear(_ dB: Double) -> Float { Float(pow(10, dB / 20)) }
+    /// Single layout: the tone on both speakers. Stereo: left pilot on the left speaker only, right on the right.
     private static func tones(for pipeline: GesturePipeline) -> [PilotTone] {
-        pipeline.bands.map { PilotTone(frequency: $0.pilotHz) }
+        guard pipeline.layout.isStereo, pipeline.bands.count == 2 else {
+            return pipeline.bands.map { PilotTone(frequency: $0.pilotHz) }
+        }
+        return [PilotTone(frequency: pipeline.bands[0].pilotHz, leftGain: 1, rightGain: 0),
+                PilotTone(frequency: pipeline.bands[1].pilotHz, leftGain: 0, rightGain: 1)]
     }
 }

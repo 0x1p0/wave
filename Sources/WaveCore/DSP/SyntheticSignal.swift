@@ -28,6 +28,25 @@ public enum SyntheticSignal {
         return out
     }
 
+    /// Echo whose round-trip path (speaker → hand → mic) is `path(t)` metres. The phase follows the path
+    /// exactly, so the Doppler is right for any geometry. Amplitude ∝ (referencePath / path)², capped.
+    public static func echo(
+        pilot frequency: Double, amplitude: Float, sampleRate: Double, count: Int,
+        referencePath: Double = 0.5, path: (Double) -> Double
+    ) -> [Float] {
+        let c = PilotBand.speedOfSound
+        var out = [Float](repeating: 0, count: count)
+        for n in 0..<count {
+            let t = Double(n) / sampleRate
+            let length = path(t)
+            var cycles = frequency * (t - length / c)
+            cycles -= cycles.rounded(.down)
+            let gain = Float(min(4, pow(referencePath / max(length, 0.05), 2)))
+            out[n] = amplitude * gain * Float(sin(2 * Double.pi * cycles))
+        }
+        return out
+    }
+
     /// Velocity profile of a push: half-sine toward the laptop, a short stop, half-sine back.
     /// Positive = toward. Returns 0 outside the gesture.
     public static func pushVelocity(

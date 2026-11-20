@@ -8,7 +8,7 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe app-debug test devices speakers sweep sweep96 confirm live debug detect record replay demo clean
+.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo clean
 
 probe:
 	@set -o pipefail; xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
@@ -45,6 +45,36 @@ confirm: probe
 # Live view around the recommended pilot. FREQ=18750 AMP=-12 make live
 live: probe
 	$(PROBE) live --freq $(or $(FREQ),19000) --amplitude $(or $(AMP),-8)
+
+# ---- The app (M2+) ------------------------------------------------------------------------------
+
+APP_DERIVED := build/AppDerivedData
+APP         := $(APP_DERIVED)/Build/Products/Release/Wave.app
+# Sign with your Apple Development / Developer ID identity if you have one, so macOS keeps the
+# Microphone and Accessibility permissions across rebuilds (ad-hoc signatures change every build).
+SIGN_ID ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep -m1 -oE '"(Developer ID Application|Apple Development)[^"]*"' | tr -d '"')
+APP_SIGN = $(if $(SIGN_ID),CODE_SIGN_IDENTITY="$(SIGN_ID)",)
+
+app:
+	@set -o pipefail; xcodebuild -project App/Wave.xcodeproj -scheme Wave -configuration Release \
+		-derivedDataPath $(APP_DERIVED) -destination '$(DEST)' $(APP_SIGN) build -quiet 2>&1 | { $(QUIET); }
+	@echo "Built $(APP) ($(if $(SIGN_ID),signed with your development identity,ad-hoc signed))"
+
+# Install into /Applications (where Launch at Login expects it) and start it.
+install: app
+	@osascript -e 'tell application id "local.wave.Wave" to quit' >/dev/null 2>&1; sleep 1; true
+	ditto "$(APP)" /Applications/Wave.app
+	open /Applications/Wave.app
+	@echo "Wave is running: look for the hand icon in the menu bar."
+
+# Run the freshly built app without installing.
+run: app
+	@osascript -e 'tell application id "local.wave.Wave" to quit' >/dev/null 2>&1; sleep 1; true
+	open "$(APP)"
+
+# CPU use of the running app over ~20 s (target: under 3 % on Apple Silicon).
+cpu:
+	@scripts/cpu.sh
 
 # ---- M1: detection ----------------------------------------------------------------------------
 

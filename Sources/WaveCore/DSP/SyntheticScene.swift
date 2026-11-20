@@ -52,6 +52,69 @@ public struct SyntheticScene: Sendable {
         return out
     }
 
+    // MARK: Stereo geometry
+
+    /// Laptop geometry in metres: x → right, y ↑ above the keyboard, z → toward the user.
+    /// Speakers sit in the hinge; the mic array near the middle.
+    public struct Geometry: Sendable {
+        public var leftSpeaker = SIMD3<Double>(-0.10, 0, 0)
+        public var rightSpeaker = SIMD3<Double>(0.10, 0, 0)
+        public var mic = SIMD3<Double>(-0.03, 0, 0.02)
+        public init() {}
+
+        public func path(from speaker: SIMD3<Double>, via hand: SIMD3<Double>) -> Double {
+            let a = speaker - hand, b = hand - mic
+            return (a * a).sum().squareRoot() + (b * b).sum().squareRoot()
+        }
+    }
+
+    /// Two pilots (left speaker / right speaker) with the hand at `hand(t)`.
+    public func renderStereo(
+        left: Double, right: Double, geometry: Geometry = Geometry(), echoAmplitude: Float = 6e-5,
+        hand: @escaping (Double) -> SIMD3<Double>
+    ) -> [Float] {
+        let binWidth = Self.sampleRate / 4096
+        let fl = PilotBand(pilotHz: left, binWidth: binWidth).pilotHz
+        let fr = PilotBand(pilotHz: right, binWidth: binWidth).pilotHz
+        var x = SyntheticSignal.tone(frequency: fl, amplitude: pilotAmplitude, sampleRate: Self.sampleRate, count: count)
+        let r = SyntheticSignal.tone(frequency: fr, amplitude: pilotAmplitude, sampleRate: Self.sampleRate, count: count, phase: 1)
+        let noise = SyntheticSignal.noise(rms: noiseRMS, count: count, seed: seed)
+        let el = SyntheticSignal.echo(pilot: fl, amplitude: echoAmplitude, sampleRate: Self.sampleRate, count: count) {
+            geometry.path(from: geometry.leftSpeaker, via: hand($0))
+        }
+        let er = SyntheticSignal.echo(pilot: fr, amplitude: echoAmplitude, sampleRate: Self.sampleRate, count: count) {
+            geometry.path(from: geometry.rightSpeaker, via: hand($0))
+        }
+        for i in 0..<count { x[i] += r[i] + noise[i] + el[i] + er[i] }
+        return x
+    }
+
+    /// Hand resting in front of the laptop.
+    public static let restingHand = SIMD3<Double>(0, 0.12, 0.40)
+
+    /// Hand path for a push toward the screen centre starting at `start`.
+    public static func pushPath(start: Double, depth: Double = 0.17, duration: Double = 0.55) -> (Double) -> SIMD3<Double> {
+        { t in
+            let u = (t - start) / duration
+            guard u > 0, u < 1 else { return restingHand }
+            let dz = depth * 0.5 * (1 - cos(2 * Double.pi * u))  // in and back out
+            return SIMD3(restingHand.x, restingHand.y, restingHand.z - dz)
+        }
+    }
+
+    /// Hand path for a horizontal swipe across the laptop (positive `speed` = left → right).
+    public static func swipePath(start: Double, speed: Double = 1.0, height: Double = 0.12, distance: Double = 0.22,
+                                 halfWidth: Double = 0.35) -> (Double) -> SIMD3<Double> {
+        { t in
+            let travel = 2 * halfWidth / abs(speed)
+            let u = (t - start) / travel
+            let from = speed > 0 ? -halfWidth : halfWidth
+            if u <= 0 { return SIMD3(from, height, distance) }   // resting at the start side
+            if u >= 1 { return SIMD3(-from, height, distance) }  // and at the far side afterwards
+            return SIMD3(from + (speed > 0 ? 1 : -1) * 2 * halfWidth * u, height, distance)
+        }
+    }
+
     /// A 14 s demo covering the interesting cases; times are in `demoScript`.
     public static func demo() -> (samples: [Float], inputTimes: [Double]) {
         let scene = SyntheticScene(duration: 14)
