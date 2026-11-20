@@ -133,17 +133,61 @@ struct GestureSettings: View {
             Section("What gestures do") {
                 ActionPicker(title: "Push (toward the screen and back)", action: $model.prefs.mapping.push, shortcuts: shortcuts)
                 if model.prefs.swipesEnabled {
-                    ActionPicker(title: "Swipe left", action: $model.prefs.mapping.swipeLeft, shortcuts: shortcuts)
-                    ActionPicker(title: "Swipe right", action: $model.prefs.mapping.swipeRight, shortcuts: shortcuts)
+                    ActionPicker(title: "Swipe left (hand moves right → left)", action: $model.prefs.mapping.swipeLeft, shortcuts: shortcuts)
+                    ActionPicker(title: "Swipe right (hand moves left → right)", action: $model.prefs.mapping.swipeRight, shortcuts: shortcuts)
+                }
+                if model.prefs.grabEnabled {
+                    ActionPicker(title: "Grab (raise an open hand, hold, close it)", action: $model.prefs.mapping.grab, shortcuts: shortcuts)
                 }
                 HStack {
-                    Text("Presets").foregroundStyle(.secondary)
+                    Text("Swipe presets").foregroundStyle(.secondary)
                     Spacer()
-                    Button("Media keys") {
-                        model.prefs.mapping = GestureMapping()
+                    Button("Desktops") {
+                        model.prefs.mapping.swipeLeft = .system(.nextDesktop)
+                        model.prefs.mapping.swipeRight = .system(.previousDesktop)
                     }
-                    Button("YouTube: J / L (±10 s)") {
-                        model.prefs.mapping = GestureMapping(push: .media(.playPause), swipeLeft: .key(.youTubeBack10), swipeRight: .key(.youTubeForward10))
+                    .help("Like a trackpad: swipe left shows the desktop on the right")
+                    Button("Tracks") {
+                        model.prefs.mapping.swipeLeft = .media(.previous)
+                        model.prefs.mapping.swipeRight = .media(.next)
+                    }
+                    Button("YouTube ±10 s") {
+                        model.prefs.mapping.swipeLeft = .key(.youTubeBack10)
+                        model.prefs.mapping.swipeRight = .key(.youTubeForward10)
+                    }
+                }
+            }
+            Section {
+                Toggle(isOn: $model.prefs.dialEnabled) {
+                    VStack(alignment: .leading) {
+                        Text("Hold & slide: volume and brightness (experimental)")
+                        Text("Bring an open hand to about 20 cm from the screen and hold it still. When ✋ appears, slide it slowly closer to turn up, farther to turn down. Hold still a moment longer to switch to the next control. Pull away to finish.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if model.prefs.dialEnabled {
+                    Picker("Controls", selection: $model.prefs.dialTargets) {
+                        Text("Volume, then brightness").tag([DialTarget.volume, .brightness])
+                        Text("Brightness, then volume").tag([DialTarget.brightness, .volume])
+                        Text("Volume only").tag([DialTarget.volume])
+                        Text("Brightness only").tag([DialTarget.brightness])
+                    }
+                    LabeledContent("Speed") {
+                        HStack {
+                            Slider(value: $model.prefs.dialSpeed, in: 2...12, step: 1)
+                            Text("\(Int(model.prefs.dialSpeed)) % per cm").monospacedDigit().frame(width: 90)
+                        }
+                    }
+                    if !BrightnessController.isAvailable {
+                        Text("Smooth brightness isn't available on this Mac; brightness changes in key-sized steps.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                Toggle(isOn: $model.prefs.grabEnabled) {
+                    VStack(alignment: .leading) {
+                        Text("Grab: close your raised hand into a fist (experimental)")
+                        Text("Works from the same raised, still hand. Calibrate with grabs for best results.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -155,7 +199,9 @@ struct GestureSettings: View {
             }
             Section("Try it") {
                 HStack {
-                    ForEach(model.prefs.swipesEnabled ? GestureEvent.Kind.allCases : [.push], id: \.self) { kind in
+                    ForEach(GestureEvent.Kind.allCases.filter { k in
+                        k == .push || (k == .grab && model.prefs.grabEnabled) || (k != .grab && model.prefs.swipesEnabled)
+                    }, id: \.self) { kind in
                         Button { model.perform(kind) } label: { Label(kind.title, systemImage: kind.symbol) }
                     }
                 }
@@ -173,7 +219,9 @@ struct ActionPicker: View {
     @Binding var action: GestureAction
     let shortcuts: [String]
 
-    private enum Kind: String, CaseIterable { case none = "Nothing", media = "Media key", key = "Keyboard shortcut", shortcut = "Shortcut" }
+    private enum Kind: String, CaseIterable {
+        case none = "Nothing", system = "Window / desktop / level", media = "Media key", key = "Keyboard shortcut", shortcut = "Shortcut"
+    }
 
     private var kind: Binding<Kind> {
         Binding(
@@ -183,6 +231,7 @@ struct ActionPicker: View {
                 case .media: return .media
                 case .key: return .key
                 case .shortcut: return .shortcut
+                case .system: return .system
                 }
             },
             set: { k in
@@ -191,6 +240,7 @@ struct ActionPicker: View {
                 case .media: action = .media(.playPause)
                 case .key: action = .key(.space)
                 case .shortcut: action = .shortcut(shortcuts.first ?? "")
+                case .system: action = .system(.minimizeWindow)
                 }
             })
     }
@@ -203,7 +253,7 @@ struct ActionPicker: View {
                     ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden()
-                .frame(width: 170)
+                .frame(width: 210)
                 detail
                 Spacer()
             }
@@ -215,6 +265,15 @@ struct ActionPicker: View {
         switch action {
         case .none:
             EmptyView()
+        case .system(let a):
+            Picker("", selection: Binding(get: { a }, set: { action = .system($0) })) {
+                ForEach(SystemAction.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 200)
+            if a == .nextDesktop || a == .previousDesktop {
+                Text("uses ⌃← / ⌃→ (Keyboard Shortcuts → Mission Control)").font(.caption).foregroundStyle(.secondary)
+            }
         case .media(let key):
             Picker("", selection: Binding(get: { key }, set: { action = .media($0) })) {
                 ForEach(MediaKey.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }

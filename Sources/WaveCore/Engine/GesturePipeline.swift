@@ -14,6 +14,8 @@ public struct PipelineFrame: Sendable {
 public struct PipelineOutput: Sendable {
     public var frames: [PipelineFrame] = []
     public var events: [GestureEvent] = []
+    /// Hold / dial interaction (ready, adjust, ended).
+    public var controls: [ControlEvent] = []
     /// Largest absolute sample in this chunk (for silence detection).
     public var peak: Float = 0
 }
@@ -30,11 +32,18 @@ public final class GesturePipeline {
     public let displayHalfWidth: Int
     public var wantsDisplay = false
     public var detectorConfig: DetectorConfig {
-        didSet { detectors.forEach { $0.config = detectorConfig } }
+        didSet {
+            detectors.forEach { $0.config = detectorConfig }
+            interaction.detector = detectorConfig
+        }
     }
     public var fusionConfig: FusionConfig {
         get { fusion.config }
         set { fusion.config = newValue }
+    }
+    public var interactionConfig: InteractionConfig {
+        get { interaction.config }
+        set { interaction.config = newValue }
     }
 
     private let analyzer: SpectrumAnalyzer
@@ -42,6 +51,9 @@ public final class GesturePipeline {
     private let extractors: [FeatureExtractor]
     private let detectors: [PushDetector]
     private let fusion = GestureFusion()
+    private let trackers: [BasebandTracker]
+    private let interaction = InteractionDetector()
+    private var mono: [Float] = []
     private var spectrum = [Float]()
     private var lastAcceptedEnd = -Double.infinity
 
@@ -58,7 +70,8 @@ public final class GesturePipeline {
     }
 
     public init(sampleRate: Double, channels: Int, layout: PilotLayout, detector: DetectorConfig = DetectorConfig(),
-                fusion fusionConfig: FusionConfig = FusionConfig(), displayHalfWidth: Int = 64) {
+                fusion fusionConfig: FusionConfig = FusionConfig(), interaction interactionConfig: InteractionConfig = InteractionConfig(),
+                displayHalfWidth: Int = 64) {
         self.layout = layout
         self.sampleRate = sampleRate
         self.channels = channels
@@ -91,17 +104,25 @@ public final class GesturePipeline {
             ]
         }
         detectors = bands.map { PushDetector(pilotHz: $0.pilotHz, config: detector) }
+        trackers = bands.map { BasebandTracker(pilotHz: $0.pilotHz, sampleRate: sampleRate) }
         fusion.config = fusionConfig
+        interaction.config = interactionConfig
+        interaction.detector = detector
     }
 
     /// Keyboard/trackpad input happened at stream time `t`. Feed in time order.
-    public func noteInput(at t: Double) { detectors.forEach { $0.noteInput(at: t) } }
+    public func noteInput(at t: Double) {
+        detectors.forEach { $0.noteInput(at: t) }
+        interaction.noteInput(at: t)
+    }
 
     /// Forget the still-hand baseline (after the pilot level or frequency changes).
     public func resetBaselines() {
         extractors.forEach { $0.reset() }
         detectors.forEach { $0.reset() }
         fusion.reset()
+        trackers.forEach { $0.reset() }
+        interaction.reset()
     }
 
     public func process(_ samples: [[Float]]) -> PipelineOutput {
@@ -109,6 +130,17 @@ public final class GesturePipeline {
         for ch in samples {
             for s in ch { out.peak = max(out.peak, abs(s)) }
         }
+        // Phase trackers run on the mono mix of the mic channels, ahead of the FFT frames that read them.
+        if let n = samples.first?.count, n > 0 {
+            if samples.count == 1 {
+                samples[0].withUnsafeBufferPointer { buf in trackers.forEach { $0.process(buf) } }
+            } else {
+                if mono.count != n { mono = [Float](repeating: 0, count: n) }
+                for i in 0..<n { mono[i] = samples.reduce(0) { $0 + $1[i] } / Float(samples.count) }
+                mono.withUnsafeBufferPointer { buf in trackers.forEach { $0.process(buf) } }
+            }
+        }
+        let frameSeconds = Double(hop) / sampleRate
         slicer.push(samples) { windows in
             analyzer.averagePowerSpectrum(windows, into: &spectrum)
             let t = Double(slicer.samplesConsumed) / sampleRate
@@ -116,7 +148,11 @@ public final class GesturePipeline {
             features.reserveCapacity(bands.count)
             spectrum.withUnsafeBufferPointer { spec in
                 for (i, extractor) in extractors.enumerated() {
-                    let f = extractor.process(spec, time: t)
+                    var f = extractor.process(spec, time: t)
+                    let bb = trackers[i].frame(endingAt: slicer.samplesConsumed, frameSeconds: frameSeconds)
+                    f.microDB = bb.microDB
+                    f.displacement = bb.displacement
+                    f.basebandVelocity = bb.velocity
                     features.append(f)
                     guard let event = detectors[i].process(f) else { continue }
                     if layout.isStereo {
@@ -127,9 +163,29 @@ public final class GesturePipeline {
                 }
             }
             if layout.isStereo { fusion.flush(now: t).forEach { accept($0, into: &out) } }
+            let combined = Self.combine(features)
+            let (controls, interactionEvents) = interaction.process(combined, pilotHz: bands[0].pilotHz)
+            out.controls += controls
+            interactionEvents.forEach { accept($0, into: &out) }
             out.frames.append(PipelineFrame(time: t, bands: features, display: wantsDisplay ? displayColumn() : []))
         }
         return out
+    }
+
+    /// One view of all pilots for the interaction detector: strongest sideband energy, mean displacement.
+    static func combine(_ features: [BandFeatures]) -> BandFeatures {
+        guard var c = features.first, features.count > 1 else { return features.first! }
+        let n = Float(features.count)
+        let strongest = features.max { max($0.towardDB, $0.awayDB) < max($1.towardDB, $1.awayDB) }!
+        c.towardDB = features.map(\.towardDB).max()!
+        c.awayDB = features.map(\.awayDB).max()!
+        c.referenceDB = features.map(\.referenceDB).max()!
+        c.velocity = strongest.velocity
+        c.microDB = features.map(\.microDB).max()!
+        c.displacement = features.map(\.displacement).reduce(0, +) / n
+        c.basebandVelocity = features.map(\.basebandVelocity).reduce(0, +) / n
+        c.quiet = features.allSatisfy(\.quiet)
+        return c
     }
 
     private func accept(_ event: GestureEvent, into out: inout PipelineOutput) {

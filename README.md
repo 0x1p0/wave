@@ -6,12 +6,21 @@ shows how your hand moved. No camera, no extra hardware.
 
 You're eating, you push your hand toward the screen and back, and YouTube pauses.
 
-| Gesture | Default action |
-|---|---|
-| **Push**: hand toward the screen and straight back (~0.5 s) | Play/Pause |
-| **Swipe left / right** (experimental, two tones) | Previous / Next track (or J / L to seek ±10 s on YouTube) |
+| Gesture | How | Default action |
+|---|---|---|
+| **Push** | hand toward the screen and straight back (~0.5 s) | Play/Pause |
+| **Hold & slide** *(experimental)* | bring an open hand to ~20 cm and hold still until ✋ appears, then slide it **slowly** closer (up) or farther (down); hold still a moment longer to switch from volume to brightness; pull away to finish | Volume, then Brightness |
+| **Grab** *(experimental)* | from the same raised, still hand: close it into a fist | Minimize window |
+| **Swipe left / right** *(experimental, two tones)* | a brisk sideways pass 15–30 cm in front of the screen | Previous / Next track, or the **Desktops** preset: next / previous desktop |
 
-Each gesture can be mapped to a media key, a keyboard shortcut, or a Shortcuts-app shortcut.
+Each gesture can be mapped to a media key, a window/desktop/volume/brightness action, a keyboard shortcut,
+or a Shortcuts-app shortcut (Settings → Gestures).
+
+**What's solid and what's experimental.** Push uses Doppler on a single tone and is the robust one. Hold &
+slide and grab rely on *phase tracking* of the echo (below), which resolves millimetres but has only been
+tuned on synthetic data and a handful of real recordings. Swipes need two tones, and the 13" Air's speakers
+sit close together. Calibrate (menu → Calibrate…) after enabling any of them, and use the debug window to
+see why a gesture was or wasn't recognised.
 
 ## Privacy
 
@@ -84,6 +93,17 @@ built-in speakers ── 19 kHz tone ──► hand ──► echo, Doppler-shif
   off a cliff above ~19.5 kHz; 96 kHz sampling doesn't help). See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md).
 - The tone's *acoustic* level is held constant: −8 dBFS at 50 % speaker volume, adjusted digitally as the
   speakers' own volume changes.
+- **Phase tracking (hold & slide, grab).** Doppler bins are 11.7 Hz wide, so motion slower than ~0.3 m/s
+  (a hand sliding a few cm/s, fingers curling) never leaves the tone's own bins. Wave also mixes each tone
+  down to 0 Hz, low-passes it, subtracts the slowly varying static echo (direct path, furniture, your
+  still hand), and follows the phase of what's left, the approach used by acoustic hand-tracking research
+  such as LLAP. One turn of phase is one wavelength of round-trip path (1.8 cm at 19 kHz), so a few
+  millimetres of hand movement are visible. Sliding keeps the moving echo strong; closing the hand makes it
+  jump briefly and fade with little net movement, which is how a grab is told apart from the dial.
+- **Volume** is set on the current output device through Core Audio (never below what Wave needs when you
+  listen on the MacBook speakers). **Brightness** uses DisplayServices, a private Apple framework loaded at
+  runtime (falls back to the brightness keys). Desktop switching sends ⌃← / ⌃→, the Mission Control
+  shortcuts, which must be enabled in System Settings → Keyboard → Keyboard Shortcuts.
 - **Swipes** use one tone per speaker (left 18.75 kHz, right 19.5 kHz). A hand crossing the laptop
   passes the left and right echo paths at different times; the lag between the two Doppler reversals
   separates swipes from pushes and gives the direction. This is experimental on a 13" MacBook Air (the
@@ -116,6 +136,7 @@ make detect      # live detection in the terminal
 make record      # detection + raw audio recording for replay (LABEL=push make record)
 make replay FILE=~/Library/Application\ Support/Wave/Recordings/wave-….caf
 make demo        # synthetic recording with pushes, noise, typing (no waving needed)
+make demo-hold   # synthetic hold & slide + grab, shown in the debug window
 ```
 
 `wave-probe config > my.json` prints the detector settings; `wave-probe replay FILE --config my.json --csv

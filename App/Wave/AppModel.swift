@@ -52,8 +52,12 @@ final class AppModel {
     @ObservationIgnored let hud = HUDController()
     @ObservationIgnored let windows = WindowManager()
     @ObservationIgnored private(set) var debugModel: DebugModel?
-    /// Calibration / sample recorder see every frame and event while they own the engine.
-    @ObservationIgnored var frameSink: ((_ frames: [PipelineFrame], _ events: [GestureEvent]) -> Void)?
+    /// Calibration / sample recorder see every frame, event and control while they own the engine.
+    @ObservationIgnored var frameSink: ((EngineOutput) -> Void)?
+    /// Hold-and-slide state.
+    @ObservationIgnored private var dialTarget: DialTarget?
+    @ObservationIgnored private var dialLevel: Float?
+    @ObservationIgnored private var interactionActive = false
     @ObservationIgnored private var modeSettings: EngineSettings?
     @ObservationIgnored private var engineRunning = false
     @ObservationIgnored private var runningSettings: EngineSettings?
@@ -169,6 +173,7 @@ final class AppModel {
             engineRunning = false
             runningSettings = nil
             engine.stop()
+            endInteraction()
         }
     }
 
@@ -185,12 +190,62 @@ final class AppModel {
     // MARK: Engine output
 
     private func ingest(_ out: EngineOutput) {
-        if out.status != engineStatus { engineStatus = out.status }
+        if out.status != engineStatus {
+            engineStatus = out.status
+            if out.status != .running { endInteraction() }
+        }
         if out.amplitudeDBFS != amplitudeDBFS { amplitudeDBFS = out.amplitudeDBFS }
         if let g = out.speakerGainDB, g != speakerGainDB { speakerGainDB = g }
         if out.speakerMuted != speakerMuted { speakerMuted = out.speakerMuted }
-        frameSink?(out.frames, out.events)
+        frameSink?(out)
         for e in out.events { handle(e) }
+        if mode == .normal { out.controls.forEach(handleControl) }
+    }
+
+    // MARK: Hold & slide (volume / brightness) and grab
+
+    func handleControl(_ control: ControlEvent) {
+        let targets = prefs.dialEnabled ? prefs.dialTargets : []
+        switch control {
+        case .ready(let i), .targetChanged(let i):
+            interactionActive = true
+            dialTarget = targets.indices.contains(i) ? targets[i] : nil
+            dialLevel = dialTarget?.get()
+            showDialHUD()
+        case .adjust(let i, let delta):
+            guard targets.indices.contains(i) else { return }
+            let target = targets[i]
+            if dialTarget != target { dialTarget = target; dialLevel = target.get() }
+            let wanted = min(1, max(0, (dialLevel ?? 0.5) + Float(delta)))
+            dialLevel = target.set(wanted) ?? wanted
+            lastGestureDate = Date()  // keeps "only while media plays" listening
+            showDialHUD()
+        case .ended:
+            endInteraction()
+        }
+    }
+
+    /// Clears the ✋ overlay (also when the engine stops mid-interaction and no `.ended` will come).
+    private func endInteraction() {
+        if interactionActive { hud.hide(after: 0.6) }
+        interactionActive = false
+        dialTarget = nil
+        dialLevel = nil
+    }
+
+    private func showDialHUD() {
+        guard prefs.showHUD else { return }
+        let grabHint = prefs.grabEnabled ? "close your hand: \(prefs.mapping.grab.title)" : nil
+        if let target = dialTarget {
+            let pct = Int(((dialLevel ?? 0) * 100).rounded())
+            let others = prefs.dialTargets.count > 1 ? " · hold still for \(prefs.dialTargets.first { $0 != target }?.title ?? "")" : ""
+            hud.show(symbol: target.symbol, title: "\(target.title) \(pct) %",
+                     subtitle: "Slide closer ↑ / farther ↓" + others + (grabHint.map { " · " + $0 } ?? ""),
+                     level: dialLevel, sticky: true)
+        } else if let grabHint {
+            hud.show(symbol: "hand.raised.fill", title: "Ready", subtitle: grabHint.prefix(1).uppercased() + grabHint.dropFirst(),
+                     sticky: true)
+        }
     }
 
     private func handle(_ e: GestureEvent) {
@@ -209,6 +264,11 @@ final class AppModel {
             if prefs.showHUD, action != .none {
                 hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title)
             }
+        case .level(let level):
+            if prefs.showHUD {
+                hud.show(symbol: action.symbol, title: "\(action.title) · \(Int((level * 100).rounded())) %",
+                         subtitle: kind.title, level: level)
+            }
         case .needsAccessibility:
             hud.show(symbol: "exclamationmark.triangle.fill", title: "Wave needs Accessibility",
                      subtitle: "to send media keys — open Wave Settings")
@@ -220,7 +280,7 @@ final class AppModel {
     // MARK: Modes (calibration, samples, hearing test, debug)
 
     /// Takes the engine for calibration/sample recording with the given settings.
-    func beginExclusive(_ mode: Mode, settings: EngineSettings, sink: @escaping ([PipelineFrame], [GestureEvent]) -> Void) {
+    func beginExclusive(_ mode: Mode, settings: EngineSettings, sink: @escaping (EngineOutput) -> Void) {
         self.mode = mode
         modeSettings = settings
         frameSink = sink
@@ -373,6 +433,7 @@ final class AppModel {
             self.recentEvents.insert(e, at: 0)
             if e.isAccepted { self.perform(e.kind) }
         }
+        debug.onControl = { [weak self] c in self?.handleControl(c) }
         debugModel = debug
         mode = .debugWindow
         reevaluate()  // stops the app's engine
@@ -396,6 +457,7 @@ extension GestureEvent.Kind {
         case .push: return "Push"
         case .swipeLeft: return "Swipe left"
         case .swipeRight: return "Swipe right"
+        case .grab: return "Grab"
         }
     }
 
@@ -404,6 +466,7 @@ extension GestureEvent.Kind {
         case .push: return "hand.point.up.left.fill"
         case .swipeLeft: return "arrow.left"
         case .swipeRight: return "arrow.right"
+        case .grab: return "hand.raised.fingers.spread.fill"
         }
     }
 }

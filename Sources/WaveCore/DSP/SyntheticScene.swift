@@ -89,6 +89,44 @@ public struct SyntheticScene: Sendable {
         return x
     }
 
+    /// A reflecting part of the hand (palm, fingers) with time-varying strength and position.
+    public struct Reflector {
+        public var amplitude: (Double) -> Float
+        public var position: (Double) -> SIMD3<Double>
+        public init(amplitude: @escaping (Double) -> Float, position: @escaping (Double) -> SIMD3<Double>) {
+            self.amplitude = amplitude
+            self.position = position
+        }
+    }
+
+    /// One tone on both speakers (modelled at the hinge centre) and any number of moving reflectors.
+    public func renderSingle(pilotHz: Double = 19_000, reflectors: [Reflector], geometry: Geometry = Geometry()) -> [Float] {
+        let f = PilotBand(pilotHz: pilotHz, binWidth: Self.sampleRate / 4096).pilotHz
+        var x = SyntheticSignal.tone(frequency: f, amplitude: pilotAmplitude, sampleRate: Self.sampleRate, count: count)
+        let noise = SyntheticSignal.noise(rms: noiseRMS, count: count, seed: seed)
+        let speaker = SIMD3<Double>(0, 0, 0)
+        let c = PilotBand.speedOfSound
+        for n in 0..<count {
+            let t = Double(n) / Self.sampleRate
+            var v = noise[n]
+            for r in reflectors {
+                let length = geometry.path(from: speaker, via: r.position(t))
+                var cycles = f * (t - length / c)
+                cycles -= cycles.rounded(.down)
+                let gain = Float(min(4, pow(0.5 / max(length, 0.05), 2)))
+                v += r.amplitude(t) * gain * Float(sin(2 * Double.pi * cycles))
+            }
+            x[n] += v
+        }
+        return x
+    }
+
+    /// Smooth 0→1 ramp between `start` and `start + duration`.
+    public static func ease(_ t: Double, start: Double, duration: Double) -> Double {
+        let u = min(1, max(0, (t - start) / duration))
+        return 0.5 - 0.5 * cos(Double.pi * u)
+    }
+
     /// Hand resting in front of the laptop.
     public static let restingHand = SIMD3<Double>(0, 0.12, 0.40)
 
@@ -131,6 +169,28 @@ public struct SyntheticScene: Sendable {
             ],
             extra: scene.burst(start: 7.0, length: 0.3, rms: 2.6e-4))
         return (samples, [10.2])
+    }
+
+    /// 10 s hold demo: approach + hold (1.0 s), slide 5 cm closer (2.4–3.4 s, dial up), pull away (5.4 s),
+    /// approach + hold again (6.5 s), close the hand (8.0 s, grab).
+    public static func holdDemo() -> [Float] {
+        let scene = SyntheticScene(duration: 10)
+        let echo: Float = 6e-5
+        func z(_ t: Double) -> Double {
+            var z = 0.40 - 0.18 * ease(t, start: 1.0, duration: 0.35)        // approach
+            z -= 0.05 * min(1, max(0, (t - 2.4) / 1.0))                       // slow slide closer
+            z += 0.23 * ease(t, start: 5.4, duration: 0.3)                     // pull away
+            z -= 0.18 * ease(t, start: 6.5, duration: 0.35)                    // approach again
+            return z
+        }
+        let palm = Reflector(amplitude: { _ in echo }, position: { SIMD3(0, 0.12, z($0)) })
+        let fingers = Reflector(
+            amplitude: { t in t < 6.4 ? 0 : echo * Float(0.6 - 0.45 * ease(t, start: 8.0, duration: 0.25)) },
+            position: { t in
+                let u = ease(t, start: 8.0, duration: 0.25)
+                return SIMD3(0, 0.19 - 0.05 * u, z(t) + 0.04 * u)
+            })
+        return scene.renderSingle(reflectors: [palm, fingers])
     }
 
     public static let demoScript = """

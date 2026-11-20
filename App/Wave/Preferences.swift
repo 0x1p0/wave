@@ -24,6 +24,14 @@ struct WavePreferences: Codable, Equatable {
     var levelDBFS = -8.0
 
     var mapping = GestureMapping()
+    /// Hold your hand still in front of the screen, then slide closer/farther to adjust.
+    var dialEnabled = true
+    /// What the dial adjusts; holding still switches to the next one.
+    var dialTargets: [DialTarget] = [.volume, .brightness]
+    /// Level change per centimetre of hand movement (%).
+    var dialSpeed = 5.0
+    /// Close your raised hand into a fist.
+    var grabEnabled = true
     var calibration: CalibrationProfile?
     var hasCompletedOnboarding = false
     var debugRecordingsEnabled = false
@@ -46,6 +54,10 @@ struct WavePreferences: Codable, Equatable {
         rightPilotHz = v(.rightPilotHz, d.rightPilotHz)
         levelDBFS = v(.levelDBFS, d.levelDBFS)
         mapping = v(.mapping, d.mapping)
+        dialEnabled = v(.dialEnabled, d.dialEnabled)
+        dialTargets = v(.dialTargets, d.dialTargets)
+        dialSpeed = v(.dialSpeed, d.dialSpeed)
+        grabEnabled = v(.grabEnabled, d.grabEnabled)
         calibration = try? c.decodeIfPresent(CalibrationProfile.self, forKey: .calibration)
         hasCompletedOnboarding = v(.hasCompletedOnboarding, d.hasCompletedOnboarding)
         debugRecordingsEnabled = v(.debugRecordingsEnabled, d.debugRecordingsEnabled)
@@ -54,6 +66,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
+        case dialEnabled, dialTargets, dialSpeed, grabEnabled
     }
 
     // MARK: Persistence
@@ -84,8 +97,13 @@ struct WavePreferences: Codable, Equatable {
         if let calibration, calibration.layout == pilotLayout {
             s.detector = calibration.detector
             s.fusion = calibration.fusion
+            if let i = calibration.interaction { s.interaction = i }
         }
         s.detector.sensitivity = sensitivity
+        s.interaction.dialEnabled = dialEnabled && !dialTargets.isEmpty
+        s.interaction.dialTargets = max(1, dialTargets.count)
+        s.interaction.dialGain = Float(dialSpeed)
+        s.interaction.grabEnabled = grabEnabled
         return s
     }
 }
@@ -95,6 +113,26 @@ struct GestureMapping: Codable, Equatable {
     var push: GestureAction = .media(.playPause)
     var swipeLeft: GestureAction = .media(.previous)
     var swipeRight: GestureAction = .media(.next)
+    var grab: GestureAction = .system(.minimizeWindow)
+
+    init(push: GestureAction = .media(.playPause), swipeLeft: GestureAction = .media(.previous),
+         swipeRight: GestureAction = .media(.next), grab: GestureAction = .system(.minimizeWindow)) {
+        self.push = push
+        self.swipeLeft = swipeLeft
+        self.swipeRight = swipeRight
+        self.grab = grab
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .push) { push = v }
+        if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .swipeLeft) { swipeLeft = v }
+        if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .swipeRight) { swipeRight = v }
+        if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .grab) { grab = v }
+    }
+
+    private enum CodingKeys: String, CodingKey { case push, swipeLeft, swipeRight, grab }
 
     subscript(kind: GestureEvent.Kind) -> GestureAction {
         get {
@@ -102,6 +140,7 @@ struct GestureMapping: Codable, Equatable {
             case .push: return push
             case .swipeLeft: return swipeLeft
             case .swipeRight: return swipeRight
+            case .grab: return grab
             }
         }
         set {
@@ -109,6 +148,7 @@ struct GestureMapping: Codable, Equatable {
             case .push: push = newValue
             case .swipeLeft: swipeLeft = newValue
             case .swipeRight: swipeRight = newValue
+            case .grab: grab = newValue
             }
         }
     }

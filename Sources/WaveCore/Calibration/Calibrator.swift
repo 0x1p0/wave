@@ -13,6 +13,11 @@ public struct CalibrationProfile: Codable, Sendable, Equatable {
     public var pushLags: [Double] = []
     public var swipeLeftLags: [Double] = []
     public var swipeRightLags: [Double] = []
+    /// Hold/dial/grab thresholds (nil in profiles from before grab support).
+    public var interaction: InteractionConfig?
+    public var grabPeaksDB: [Float]?
+    /// Still-room micro-motion level (99.5th percentile).
+    public var microNoiseDB: Float?
 
     public init(layout: PilotLayout, detector: DetectorConfig, fusion: FusionConfig, noiseDB: Float) {
         self.layout = layout
@@ -26,6 +31,9 @@ public struct CalibrationProfile: Codable, Sendable, Equatable {
         if !pushPeaksDB.isEmpty { parts.append(String(format: "push peaks %.0f–%.0f dB", pushPeaksDB.min()!, pushPeaksDB.max()!)) }
         parts.append(String(format: "start ≥ %.1f dB, peak ≥ %.1f dB, %.2f–%.2f s",
                             detector.onThresholdDB, detector.minPeakDB, detector.minDuration, detector.maxDuration))
+        if let g = grabPeaksDB, !g.isEmpty, let i = interaction {
+            parts.append(String(format: "grab ≥ %.1f dB (examples %.0f–%.0f)", i.grabMicroDB, g.min()!, g.max()!))
+        }
         if layout.isStereo {
             parts.append(String(format: "swipe lag ≥ %.0f ms%@", fusion.minSwipeLag * 1000,
                                 fusion.invertSwipeDirection ? ", direction flipped" : ""))
@@ -39,6 +47,24 @@ public enum Calibrator {
     /// 99.5th percentile of the stronger sideband over all bands — what "nothing happening" looks like.
     public static func noiseLevel(_ frames: [PipelineFrame]) -> Float {
         Stats.percentile(frames.flatMap { $0.bands.map { max($0.towardDB, $0.awayDB) } }, 0.995)
+    }
+
+    public static func microLevel(_ frames: [PipelineFrame]) -> Float {
+        Stats.percentile(frames.flatMap { $0.bands.map(\.microDB) }, 0.995)
+    }
+
+    /// Permissive grab settings for collecting examples (dial off so every burst is judged as a grab).
+    public static func collectionInteraction(microNoiseDB: Float) -> InteractionConfig {
+        var c = InteractionConfig()
+        c.dialEnabled = false
+        c.grabEnabled = true
+        c.grabMicroDB = max(5, microNoiseDB + 3)
+        c.grabRiseDB = 5
+        c.grabMaxDuration = 0.8
+        c.grabMaxDisplacement = 0.03
+        c.grabMaxNetSpeed = 0.05
+        c.targetCycle = 6  // stay ready while the user gets ready to close the hand
+        return c
     }
 
     public static func referenceLevel(_ frames: [PipelineFrame]) -> Float {
@@ -67,7 +93,7 @@ public enum Calibrator {
 
     public static func makeProfile(
         layout: PilotLayout, quiet: [PipelineFrame], pushes: [GestureEvent],
-        swipesLeft: [GestureEvent] = [], swipesRight: [GestureEvent] = []
+        swipesLeft: [GestureEvent] = [], swipesRight: [GestureEvent] = [], grabs: [GestureEvent] = []
     ) -> CalibrationProfile {
         let noise = noiseLevel(quiet)
         let referenceNoise = referenceLevel(quiet)
@@ -115,6 +141,16 @@ public enum Calibrator {
         }
 
         var profile = CalibrationProfile(layout: layout, detector: d, fusion: f, noiseDB: noise)
+        let microNoise = microLevel(quiet)
+        profile.microNoiseDB = microNoise
+        let grabPeaks = grabs.compactMap(\.microPeakDB)
+        if !grabPeaks.isEmpty {
+            var i = InteractionConfig()
+            i.grabMicroDB = min(25, max(microNoise + 4, 0.6 * Stats.median(grabPeaks), 6))
+            i.grabRiseDB = min(i.grabRiseDB, max(5, 0.5 * (Stats.median(grabPeaks) - microNoise)))
+            profile.interaction = i
+            profile.grabPeaksDB = grabPeaks
+        }
         profile.pushPeaksDB = pushes.map { min($0.towardPeakDB, $0.awayPeakDB) }
         profile.pushDurations = pushes.map(\.duration)
         profile.pushLags = pushLags

@@ -32,6 +32,8 @@ public final class DebugModel {
     /// Called for every new gesture event (the menu bar app uses this to act on gestures while the debug
     /// window has taken over listening).
     @ObservationIgnored public var onEvent: ((GestureEvent) -> Void)?
+    /// Hold / dial events (the app uses them for volume/brightness while the debug window listens).
+    @ObservationIgnored public var onControl: ((ControlEvent) -> Void)?
     /// Engine settings supplied by a host app (pilot layout, calibrated detector). The level and
     /// sensitivity controls still apply on top.
     @ObservationIgnored public var baseSettings: EngineSettings?
@@ -145,6 +147,7 @@ public final class DebugModel {
             lastIdleShown = idle
             inputIdle = idle
         }
+        out.controls.forEach { onControl?($0) }
         if !out.events.isEmpty {
             out.events.forEach { onEvent?($0) }
             events.insert(contentsOf: out.events.reversed(), at: 0)

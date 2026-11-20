@@ -18,6 +18,12 @@ public struct BandFeatures: Sendable, Equatable, Codable {
     public var reflectionDB: Float
     /// Nothing is moving: all bands within 3 dB of baseline.
     public var quiet: Bool
+    /// Phase tracker: changing-echo energy over its quiet level (dB) — sees slow/small motion.
+    public var microDB: Float = 0
+    /// Phase tracker: hand displacement toward the laptop during this frame (m).
+    public var displacement: Float = 0
+    /// Phase tracker: smoothed hand speed (m/s, + toward).
+    public var basebandVelocity: Float = 0
 
     public init(time: Double, pilotDB: Float, towardDB: Float, awayDB: Float, referenceDB: Float,
                 velocity: Float, reflectionDB: Float, quiet: Bool) {

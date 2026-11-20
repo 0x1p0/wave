@@ -42,7 +42,18 @@ struct ReplayCommand {
             csv = FileHandle(forWritingAtPath: path)
             csv?.write(Data("time,pilot_db,toward_db,away_db,reference_db,velocity,reflection_db,quiet\n".utf8))
         }
+        var controlLines: [String] = []
+        var dial = 0.0
         let result = Replay.run(recording, pilots: pilots, detector: detector) { out in
+            let t = out.frames.last?.time ?? 0
+            for c in out.controls {
+                switch c {
+                case .ready(let i): dial = 0; controlLines.append(String(format: "%8.2f s  ✋ ready (target %d)", t, i))
+                case .targetChanged(let i): controlLines.append(String(format: "%8.2f s  ✋ target → %d", t, i))
+                case .adjust(_, let d): dial += d
+                case .ended: controlLines.append(String(format: "%8.2f s  ✋ ended (dial %+.0f %%)", t, dial * 100))
+                }
+            }
             guard let csv else { return }
             var rows = ""
             for frame in out.frames {
@@ -56,8 +67,9 @@ struct ReplayCommand {
 
         let shown = options.showRejected ? result.events : result.events.filter(\.isAccepted)
         for e in shown { print(String(format: "%8.2f s  ", e.end) + e.summary) }
+        controlLines.forEach { print($0) }
         let accepted = result.events.filter(\.isAccepted).count
-        print("\n\(accepted) push(es) accepted, \(result.events.count - accepted) rejected, \(result.frames) frames.")
+        print("\n\(accepted) gesture(s) accepted, \(result.events.count - accepted) candidate(s) rejected, \(result.frames) frames.")
         if let live = recording.metadata?.liveEvents {
             print("Live detector at recording time: \(live.filter(\.isAccepted).count) accepted, \(live.filter { !$0.isAccepted }.count) rejected.")
         }

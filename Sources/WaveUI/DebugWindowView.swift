@@ -119,7 +119,7 @@ struct DebugEventLog: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Events").font(.headline)
-                Text("\(model.acceptedCount) push\(model.acceptedCount == 1 ? "" : "es") · \(model.events.count - model.acceptedCount) rejected")
+                Text("\(model.acceptedCount) gesture\(model.acceptedCount == 1 ? "" : "s") · \(model.events.count - model.acceptedCount) rejected")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Toggle("Show rejected", isOn: $model.showRejected)

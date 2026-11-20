@@ -23,15 +23,21 @@ final class CalibrationSession {
     @ObservationIgnored private var lastAccepted = -Double.infinity
     @ObservationIgnored private var active = false
     @ObservationIgnored private var settings: EngineSettings
+    @ObservationIgnored private let includeGrab: Bool
+    /// Grab step: the hand is raised and still ("✋ ready").
+    private(set) var handReady = false
 
     static let quietSeconds = 4.0
 
-    var kinds: [GestureEvent.Kind] { layout.isStereo ? [.push, .swipeLeft, .swipeRight] : [.push] }
+    var kinds: [GestureEvent.Kind] {
+        (layout.isStereo ? [.push, .swipeLeft, .swipeRight] : [.push]) + (includeGrab ? [.grab] : [])
+    }
 
     init(model: AppModel) {
         self.model = model
         layout = model.prefs.pilotLayout
         settings = model.prefs.engineSettings
+        includeGrab = model.prefs.grabEnabled
     }
 
     func begin() {
@@ -50,12 +56,20 @@ final class CalibrationSession {
         settings.detector = DetectorConfig()
         settings.detector.minPeakDB = 99
         settings.fusion = Calibrator.collectionFusion()
-        model.beginExclusive(.calibrating, settings: settings) { [weak self] frames, events in
-            self?.ingest(frames, events)
+        model.beginExclusive(.calibrating, settings: settings) { [weak self] out in
+            self?.ingest(out)
         }
     }
 
-    private func ingest(_ frames: [PipelineFrame], _ events: [GestureEvent]) {
+    private func ingest(_ out: EngineOutput) {
+        let frames = out.frames, events = out.events
+        for c in out.controls {
+            switch c {
+            case .ready: handReady = true
+            case .ended: handReady = false
+            default: break
+            }
+        }
         switch step {
         case .quiet:
             for f in frames {
@@ -67,6 +81,7 @@ final class CalibrationSession {
                 let noise = Calibrator.noiseLevel(quietFrames)
                 noiseDB = noise
                 settings.detector = Calibrator.collectionDetector(noiseDB: noise)
+                settings.interaction = Calibrator.collectionInteraction(microNoiseDB: Calibrator.microLevel(quietFrames))
                 model.updateExclusive(settings: settings)
                 step = .gesture(kinds[0])
             }
@@ -76,7 +91,8 @@ final class CalibrationSession {
                     message = "Only one speaker noticed that one. Try a little closer to the middle."
                     continue
                 }
-                guard e.isAccepted, e.end - lastAccepted > 0.5 else { continue }
+                // Grab step counts grabs only; the other steps count anything push/swipe-shaped.
+                guard e.isAccepted, (e.kind == .grab) == (kind == .grab), e.end - lastAccepted > 0.5 else { continue }
                 lastAccepted = e.end
                 collected[kind, default: []].append(e)
                 let n = collected[kind]!.count
@@ -105,7 +121,8 @@ final class CalibrationSession {
     private func finish() {
         profile = Calibrator.makeProfile(
             layout: layout, quiet: quietFrames, pushes: collected[.push] ?? [],
-            swipesLeft: collected[.swipeLeft] ?? [], swipesRight: collected[.swipeRight] ?? [])
+            swipesLeft: collected[.swipeLeft] ?? [], swipesRight: collected[.swipeRight] ?? [],
+            grabs: collected[.grab] ?? [])
         step = .review
         stopEngine()
     }
@@ -160,6 +177,11 @@ struct CalibrationView: View {
                         .foregroundStyle(i < (session.counts[kind] ?? 0) ? .green : .secondary)
                 }
             }
+            if kind == .grab {
+                Label(session.handReady ? "✋ Ready — now close your hand into a fist" : "Raise your open hand and hold it still…",
+                      systemImage: session.handReady ? "hand.raised.fill" : "hand.raised")
+                    .foregroundStyle(session.handReady ? .green : .secondary)
+            }
             if !session.message.isEmpty { Text(session.message).foregroundStyle(.secondary) }
             if let n = session.noiseDB { Text(String(format: "Room noise: %.1f dB", n)).font(.caption).foregroundStyle(.secondary) }
             Button("Skip this gesture") { session.skip() }
@@ -199,6 +221,7 @@ struct CalibrationView: View {
         case .push: return "Push \(session.target) times"
         case .swipeLeft: return "Swipe left \(session.target) times"
         case .swipeRight: return "Swipe right \(session.target) times"
+        case .grab: return "Grab \(session.target) times"
         }
     }
 
@@ -207,6 +230,7 @@ struct CalibrationView: View {
         case .push: return "Toward the screen and straight back, about half a second each. Pause between pushes."
         case .swipeLeft: return "Move your hand from the right side of the laptop to the left, briskly. Pause between swipes."
         case .swipeRight: return "Move your hand from the left side of the laptop to the right, briskly. Pause between swipes."
+        case .grab: return "Raise your open hand about 20 cm in front of the screen and hold it still until it says Ready, then close it into a fist. Open it, lower your hand, and repeat."
         }
     }
 }
@@ -216,7 +240,7 @@ struct CalibrationView: View {
 @MainActor
 @Observable
 final class SampleRecorderModel {
-    static let labels = ["push", "swipe_left", "swipe_right", "none"]
+    static let labels = ["push", "swipe_left", "swipe_right", "grab", "none"]
 
     let model: AppModel
     var label = "push"
@@ -235,8 +259,8 @@ final class SampleRecorderModel {
     func start() {
         guard !running else { return }
         running = true
-        model.beginExclusive(.sampling, settings: model.prefs.engineSettings) { [weak self] frames, events in
-            self?.ingest(frames, events)
+        model.beginExclusive(.sampling, settings: model.prefs.engineSettings) { [weak self] out in
+            self?.ingest(out.frames, out.events)
         }
     }
 

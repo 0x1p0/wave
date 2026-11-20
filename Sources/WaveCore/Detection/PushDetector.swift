@@ -6,6 +6,7 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         case push
         case swipeLeft = "swipe left"
         case swipeRight = "swipe right"
+        case grab
     }
 
     public enum Outcome: String, Sendable, Codable {
@@ -36,6 +37,8 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
     public var reversal: Double?
     /// Stereo layout: right-speaker reversal minus left-speaker reversal (s).
     public var lag: Double?
+    /// Grab: peak micro-motion energy (dB over quiet).
+    public var microPeakDB: Float?
 
     public var duration: Double { end - start }
     public var isAccepted: Bool { outcome == .accepted }

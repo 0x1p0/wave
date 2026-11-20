@@ -97,3 +97,21 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
   with the direction).
 - Calibration thresholds: start = max(noise + 2, 0.45 × typical peak) within 4…14 dB; peak = max(start + 1,
   noise + 3, min(lowest − 2, 0.75 × typical)); durations from the examples; sensitivity then shifts ±6 dB.
+
+## Hold & slide, grab, more actions (after M5)
+
+- Phase tracker per pilot (`BasebandTracker`): mix to 0 Hz, 24-sample boxcar → 2 kHz, 4th-order Butterworth
+  low-pass at 100 Hz (rejects the other stereo pilot by ~70 dB), ÷4 → 500 Hz; static vector = 0.4 s
+  exponential average; phase steps of the remainder only when it is ≥ 12× its quiet level for two samples in a
+  row; hand displacement = Δphase · c / (4π f) (speaker and mic treated as co-located). The quiet level is
+  tracked in dB so sustained motion can't drag it up.
+- `InteractionDetector`: approach (Doppler toward) → 0.35 s of stillness → ready ✋. From ready: slide past a
+  1.2 cm dead zone → dial (5 % per cm by default, adjustments held 150 ms so a fast pull-away can't nudge the
+  level); a micro-motion burst ≥ 10 dB that rises ≥ 8 dB over the ready level and fades within 0.6 s with
+  ≤ 1.5 cm and ≤ 2.5 cm/s net movement → grab; fast Doppler motion, typing, or idle → end. Holding still cycles
+  dial targets every 1.6 s.
+- These thresholds come from synthetic palm + finger models and a few real recordings; calibration learns the
+  grab threshold from the user's own grabs.
+- Volume via Core Audio on the default output (VirtualMainVolume), refusing to take the built-in speakers
+  below the pilot-compensation limit. Brightness via DisplayServices (private, dlopen at runtime) with the
+  NX brightness keys as fallback. Desktops via ⌃←/⌃→ with fn + number-pad flags set like real arrow keys.

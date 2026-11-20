@@ -43,6 +43,74 @@ enum MediaKey: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Built-in actions: window, desktop, volume and brightness.
+enum SystemAction: String, Codable, CaseIterable, Identifiable {
+    case minimizeWindow, closeWindow, hideApp
+    case nextDesktop, previousDesktop, missionControl, appWindows
+    case volumeUp, volumeDown, brightnessUp, brightnessDown
+    case lockScreen
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .minimizeWindow: return "Minimize window"
+        case .closeWindow: return "Close tab / window"
+        case .hideApp: return "Hide app"
+        case .nextDesktop: return "Next desktop"
+        case .previousDesktop: return "Previous desktop"
+        case .missionControl: return "Mission Control"
+        case .appWindows: return "App windows"
+        case .volumeUp: return "Volume up"
+        case .volumeDown: return "Volume down"
+        case .brightnessUp: return "Brightness up"
+        case .brightnessDown: return "Brightness down"
+        case .lockScreen: return "Lock screen"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .minimizeWindow: return "arrow.down.right.and.arrow.up.left"
+        case .closeWindow: return "xmark.square"
+        case .hideApp: return "eye.slash"
+        case .nextDesktop: return "rectangle.righthalf.inset.filled.arrow.right"
+        case .previousDesktop: return "rectangle.lefthalf.inset.filled.arrow.left"
+        case .missionControl: return "rectangle.3.group"
+        case .appWindows: return "macwindow.on.rectangle"
+        case .volumeUp: return "speaker.wave.3.fill"
+        case .volumeDown: return "speaker.wave.1.fill"
+        case .brightnessUp: return "sun.max.fill"
+        case .brightnessDown: return "sun.min.fill"
+        case .lockScreen: return "lock.fill"
+        }
+    }
+
+    /// The keystroke for keyboard-driven actions (sent to the system / frontmost app).
+    var keyCombo: KeyCombo? {
+        let cmd = NSEvent.ModifierFlags.command.rawValue, ctrl = NSEvent.ModifierFlags.control.rawValue
+        switch self {
+        case .minimizeWindow: return KeyCombo(keyCode: UInt16(kVK_ANSI_M), modifiers: cmd, display: "⌘M")
+        case .closeWindow: return KeyCombo(keyCode: UInt16(kVK_ANSI_W), modifiers: cmd, display: "⌘W")
+        case .hideApp: return KeyCombo(keyCode: UInt16(kVK_ANSI_H), modifiers: cmd, display: "⌘H")
+        case .nextDesktop: return KeyCombo(keyCode: UInt16(kVK_RightArrow), modifiers: ctrl, display: "⌃→")
+        case .previousDesktop: return KeyCombo(keyCode: UInt16(kVK_LeftArrow), modifiers: ctrl, display: "⌃←")
+        case .missionControl: return KeyCombo(keyCode: UInt16(kVK_UpArrow), modifiers: ctrl, display: "⌃↑")
+        case .appWindows: return KeyCombo(keyCode: UInt16(kVK_DownArrow), modifiers: ctrl, display: "⌃↓")
+        case .lockScreen: return KeyCombo(keyCode: UInt16(kVK_ANSI_Q), modifiers: ctrl | cmd, display: "⌃⌘Q")
+        case .volumeUp, .volumeDown, .brightnessUp, .brightnessDown: return nil
+        }
+    }
+
+    var dialTarget: DialTarget? {
+        switch self {
+        case .volumeUp, .volumeDown: return .volume
+        case .brightnessUp, .brightnessDown: return .brightness
+        default: return nil
+        }
+    }
+}
+
 /// A keyboard shortcut to send to the frontmost app (e.g. J / L to seek ±10 s on YouTube).
 struct KeyCombo: Codable, Equatable, Hashable {
     var keyCode: UInt16
@@ -80,6 +148,8 @@ enum GestureAction: Codable, Equatable, Hashable {
     case key(KeyCombo)
     /// Runs a shortcut from the Shortcuts app by name.
     case shortcut(String)
+    /// Window, desktop, volume, brightness.
+    case system(SystemAction)
 
     var title: String {
         switch self {
@@ -87,6 +157,7 @@ enum GestureAction: Codable, Equatable, Hashable {
         case .media(let k): return k.title
         case .key(let combo): return "Key \(combo.display)"
         case .shortcut(let name): return "Shortcut “\(name)”"
+        case .system(let a): return a.title
         }
     }
 
@@ -96,6 +167,7 @@ enum GestureAction: Codable, Equatable, Hashable {
         case .media(let k): return k.symbol
         case .key: return "keyboard"
         case .shortcut: return "square.stack.3d.up.fill"
+        case .system(let a): return a.symbol
         }
     }
 
@@ -103,6 +175,7 @@ enum GestureAction: Codable, Equatable, Hashable {
     var needsAccessibility: Bool {
         switch self {
         case .media, .key: return true
+        case .system(let a): return a.keyCombo != nil
         case .none, .shortcut: return false
         }
     }
@@ -111,7 +184,13 @@ enum GestureAction: Codable, Equatable, Hashable {
 /// Performs gesture actions.
 @MainActor
 enum ActionPerformer {
-    enum Result { case done, needsAccessibility, failed(String) }
+    enum Result {
+        case done
+        /// Done, and here is the new level (volume/brightness) to show.
+        case level(Float)
+        case needsAccessibility
+        case failed(String)
+    }
 
     static func perform(_ action: GestureAction) -> Result {
         if action.needsAccessibility && !Accessibility.isTrusted { return .needsAccessibility }
@@ -127,21 +206,34 @@ enum ActionPerformer {
         case .shortcut(let name):
             ShortcutsRunner.run(name)
             return .done
+        case .system(let a):
+            if let combo = a.keyCombo {
+                postKey(combo)
+                return .done
+            }
+            let step: Float = 1.0 / 16
+            let up = a == .volumeUp || a == .brightnessUp
+            let level = a.dialTarget == .volume ? VolumeController.step(up ? step : -step)
+                                                : BrightnessController.step(up ? step : -step)
+            return level.map { .level($0) } ?? .done
         }
     }
 
-    /// Media keys are NX_SYSDEFINED events (subtype 8) with the key in data1.
-    private static func postMediaKey(_ key: MediaKey) {
+    /// NX_SYSDEFINED key (media keys, brightness keys).
+    static func postSystemKey(_ code: Int) {
         for down in [true, false] {
             let state = down ? 0xA : 0xB
             let event = NSEvent.otherEvent(
                 with: .systemDefined, location: .zero,
                 modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
-                subtype: 8, data1: (key.rawValue << 16) | (state << 8), data2: -1)
+                subtype: 8, data1: (code << 16) | (state << 8), data2: -1)
             event?.cgEvent?.post(tap: .cghidEventTap)
         }
     }
+
+    /// Media keys are NX_SYSDEFINED events (subtype 8) with the key in data1.
+    private static func postMediaKey(_ key: MediaKey) { postSystemKey(key.rawValue) }
 
     private static func postKey(_ combo: KeyCombo) {
         let source = CGEventSource(stateID: .hidSystemState)
@@ -151,6 +243,10 @@ enum ActionPerformer {
         if m.contains(.option) { flags.insert(.maskAlternate) }
         if m.contains(.control) { flags.insert(.maskControl) }
         if m.contains(.shift) { flags.insert(.maskShift) }
+        // Real arrow keys carry the fn + number-pad flags; Mission Control's "move to space" hotkeys
+        // (⌃← / ⌃→) only match when they're present.
+        let arrows: Set<Int> = [kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow]
+        if arrows.contains(Int(combo.keyCode)) { flags.formUnion([.maskSecondaryFn, .maskNumericPad]) }
         for down in [true, false] {
             let e = CGEvent(keyboardEventSource: source, virtualKey: combo.keyCode, keyDown: down)
             e?.flags = flags

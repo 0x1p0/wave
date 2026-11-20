@@ -10,14 +10,16 @@ public struct LabeledSample: Codable, Sendable {
     /// frames × features; see `featureNames(bands:)` for the column order.
     public var features: [[Float]]
 
-    public static let perBand = ["toward_db", "away_db", "reference_db", "velocity", "pilot_db", "reflection_db"]
+    public static let perBand = ["toward_db", "away_db", "reference_db", "velocity", "pilot_db", "reflection_db",
+                                 "micro_db", "displacement_mm", "phase_velocity"]
 
     public static func featureNames(bands: Int) -> [String] {
         (0..<bands).flatMap { b in perBand.map { "b\(b)_\($0)" } }
     }
 
     static func row(_ frame: PipelineFrame) -> [Float] {
-        frame.bands.flatMap { [$0.towardDB, $0.awayDB, $0.referenceDB, $0.velocity, $0.pilotDB, $0.reflectionDB] }
+        frame.bands.flatMap { [$0.towardDB, $0.awayDB, $0.referenceDB, $0.velocity, $0.pilotDB, $0.reflectionDB,
+                               $0.microDB, $0.displacement * 1000, $0.basebandVelocity] }
     }
 }
 

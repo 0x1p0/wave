@@ -24,6 +24,8 @@ struct TraceSnapshot: Sendable {
     var away: [Float] = []
     var reference: [Float] = []
     var velocity: [Float] = []
+    var micro: [Float] = []
+    var phaseVelocity: [Float] = []
 
     @MainActor
     init(_ h: FeatureHistory) {
@@ -31,6 +33,7 @@ struct TraceSnapshot: Sendable {
             let r = h.ring(i)
             times.append(h.times[r]); toward.append(h.toward[r]); away.append(h.away[r])
             reference.append(h.reference[r]); velocity.append(h.velocity[r])
+            micro.append(h.micro[r]); phaseVelocity.append(h.phaseVelocity[r] * 10)  // ×10: cm/s scale on the m/s axis
         }
     }
 }
@@ -111,14 +114,16 @@ struct FeatureTraceView: View {
                 }
                 ctx.stroke(p, with: .color(color), lineWidth: 1.3)
             }
+            trace(h.micro, .pink.opacity(0.8), yDB)
             trace(h.reference, .gray, yDB)
             trace(h.away, .orange, yDB)
             trace(h.toward, .green, yDB)
+            trace(h.phaseVelocity, .cyan, yV)
             trace(h.velocity, .blue, yV)
             drawEventMarkers(ctx, size: size, axis: axis, events: events)
 
             // Legend.
-            let legend = [("toward", Color.green), ("away", .orange), ("reference", .gray),
+            let legend = [("toward", Color.green), ("away", .orange), ("reference", .gray), ("micro-motion", .pink),
                           ("on threshold", .blue), ("min peak", .purple)]
             var x: CGFloat = 30
             for (name, color) in legend {
@@ -126,7 +131,7 @@ struct FeatureTraceView: View {
                 ctx.draw(Text(name).font(.system(size: 9)).foregroundColor(.secondary), at: CGPoint(x: x + 14, y: 5), anchor: .leading)
                 x += 92
             }
-            ctx.draw(Text("velocity (m/s, + toward)").font(.system(size: 9)).foregroundColor(.blue),
+            ctx.draw(Text("Doppler velocity (m/s, + toward) · phase-tracked speed ×10 (cyan)").font(.system(size: 9)).foregroundColor(.blue),
                      at: CGPoint(x: 30, y: velTop + 7), anchor: .leading)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -149,7 +154,7 @@ func drawEventMarkers(_ ctx: GraphicsContext, size: CGSize, axis: TimeAxis, even
         var p = Path()
         p.move(to: CGPoint(x: x1, y: 0)); p.addLine(to: CGPoint(x: x1, y: size.height))
         ctx.stroke(p, with: .color(color.opacity(0.8)), lineWidth: 1.5)
-        let label = e.isAccepted ? String(format: "PUSH %.2f", e.confidence) : e.outcome.rawValue
+        let label = e.isAccepted ? String(format: "%@ %.2f", e.kind.rawValue.uppercased(), e.confidence) : e.outcome.rawValue
         ctx.draw(Text(label).font(.system(size: 10, weight: .semibold)).foregroundColor(color),
                  at: CGPoint(x: x1 - 3, y: 18), anchor: .trailing)
     }

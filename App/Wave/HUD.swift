@@ -9,8 +9,9 @@ final class HUDController {
     private var hosting: NSHostingView<HUDView>?
     private var hideWork: DispatchWorkItem?
 
-    func show(symbol: String, title: String, subtitle: String? = nil) {
-        let view = HUDView(symbol: symbol, title: title, subtitle: subtitle)
+    /// `level` (0…1) adds a bar; `sticky` keeps it up until `hide(after:)`.
+    func show(symbol: String, title: String, subtitle: String? = nil, level: Float? = nil, sticky: Bool = false) {
+        let view = HUDView(symbol: symbol, title: title, subtitle: subtitle, level: level)
         let panel = self.panel ?? makePanel()
         if let hosting {
             hosting.rootView = view
@@ -28,17 +29,24 @@ final class HUDController {
                                   width: size.width, height: size.height), display: true)
         }
         hideWork?.cancel()
-        if !panel.isVisible { panel.alphaValue = 0 }
-        panel.orderFrontRegardless()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
-            panel.animator().alphaValue = 1
+        if !panel.isVisible || panel.alphaValue < 1 {
+            if !panel.isVisible { panel.alphaValue = 0 }
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                panel.animator().alphaValue = 1
+            }
         }
+        if !sticky { hide(after: 0.9) }
+    }
+
+    func hide(after seconds: Double) {
+        hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.hide() }
         }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     private func hide() {
@@ -73,14 +81,24 @@ struct HUDView: View {
     let symbol: String
     let title: String
     let subtitle: String?
+    var level: Float? = nil
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 22, weight: .semibold))
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                if let level {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.secondary.opacity(0.25))
+                            Capsule().fill(.primary).frame(width: geo.size.width * CGFloat(min(1, max(0, level))))
+                        }
+                    }
+                    .frame(width: 180, height: 6)
+                }
                 if let subtitle { Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary) }
             }
         }

@@ -23,6 +23,7 @@ struct DetectCommand {
         var lastStatus: EngineStatus?
         var lastMeter = 0.0
         var saved: URL?
+        var dialTotal = 0.0
         let tty = isatty(STDOUT_FILENO) != 0
 
         func handle(_ out: EngineOutput) {
@@ -35,14 +36,28 @@ struct DetectCommand {
                 clearMeter()
                 print(String(format: "%8.2f s  ", e.end) + e.summary)
             }
+            for c in out.controls {
+                switch c {
+                case .ready(let i):
+                    clearMeter(); dialTotal = 0
+                    print("          ✋ READY  (dial target \(i): slide slowly closer/farther, or close your hand to grab)")
+                case .targetChanged(let i):
+                    clearMeter(); print("          ✋ dial target → \(i)")
+                case .adjust(_, let d):
+                    dialTotal += d
+                case .ended:
+                    clearMeter()
+                    print(String(format: "          ✋ ended  (dial total %+.0f %%)", dialTotal * 100))
+                }
+            }
             if let url = out.savedRecording { saved = url }
             guard tty, let f = out.frames.last?.bands.first else { return }
             let now = Date().timeIntervalSince1970
             guard now - lastMeter > 0.1 else { return }
             lastMeter = now
             let idle = out.inputIdle.map { String(format: "idle %4.1f s", $0) } ?? ""
-            let line = String(format: "  ▲%+5.1f ▼%+5.1f ref %+5.1f dB  v %+5.2f m/s  pilot %6.1f dBFS  %@",
-                              f.towardDB, f.awayDB, f.referenceDB, f.velocity, f.pilotDB, idle)
+            let line = String(format: "  ▲%+5.1f ▼%+5.1f ref %+5.1f dB  v %+5.2f m/s  micro %+5.1f dB  phase %+5.1f cm/s  %@",
+                              f.towardDB, f.awayDB, f.referenceDB, f.velocity, f.microDB, f.basebandVelocity * 100, idle)
             fputs("\r\u{1B}[2K" + line, stdout)
             fflush(stdout)
         }

@@ -52,7 +52,7 @@ let usage = """
       wave-probe config
           Prints the default detector settings as JSON (edit, then pass with --config).
 
-      wave-probe synth OUT.caf
+      wave-probe synth [--hold] OUT.caf
           Writes a synthetic 14 s demo recording (pushes, a weak push, noise burst, one-way motion,
           a push right after typing) for trying replay and the debug window without waving.
 
@@ -69,7 +69,7 @@ struct Arguments {
     var flags: Set<String> = []
     var positional: [String] = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "hold", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -164,18 +164,20 @@ do {
         exitCode = try ReplayCommand(options: o).run()
 
     case "synth":
+        try args.checkKnown(["hold"])
         guard let out = args.positional.first else { throw ProbeError("synth needs an output .caf path") }
         let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
-        let (samples, inputs) = SyntheticScene.demo()
+        let hold = args.flags.contains("hold")
+        let (samples, inputs) = hold ? (SyntheticScene.holdDemo(), []) : SyntheticScene.demo()
         var meta = RecordingMetadata(
             sampleRate: SyntheticScene.sampleRate, channels: 1, pilots: [19_000], micDevice: "synthetic", machine: "synthetic")
-        meta.label = "demo"
+        meta.label = hold ? "hold-demo" : "demo"
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let writer = try RecordingWriter(url: url, metadata: meta, streamStart: 0)
         try writer.append([samples])
         inputs.forEach { writer.noteInput(at: $0) }
         try writer.finish()
-        print("Wrote \(url.path) (\(SyntheticScene.demoScript))")
+        print("Wrote \(url.path) (\(hold ? "approach + hold, slide closer, pull away, approach + grab" : SyntheticScene.demoScript))")
         exitCode = 0
 
     case "media":

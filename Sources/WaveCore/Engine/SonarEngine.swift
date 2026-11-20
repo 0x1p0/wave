@@ -7,6 +7,7 @@ public struct EngineSettings: Sendable, Equatable {
     public var level = PilotLevelPolicy()
     public var detector = DetectorConfig()
     public var fusion = FusionConfig()
+    public var interaction = InteractionConfig()
     public init() {}
 
     /// Convenience for single-pilot callers.
@@ -45,6 +46,8 @@ public enum EngineStatus: Sendable, Equatable {
 public struct EngineOutput: Sendable {
     public var frames: [PipelineFrame] = []
     public var events: [GestureEvent] = []
+    /// Hold / dial interaction events, in order.
+    public var controls: [ControlEvent] = []
     public var status: EngineStatus = .stopped
     public var bands: [PilotBand] = []
     public var displayHalfWidth = 64
@@ -87,6 +90,7 @@ public final class SonarEngine: @unchecked Sendable {
     private var deliverAllFrames = true
     private var pendingFrames: [PipelineFrame] = []
     private var pendingEvents: [GestureEvent] = []
+    private var pendingControls: [ControlEvent] = []
     private var savedRecording: URL?
     private var lastDelivery = 0.0
     private var lastVolumeCheck = 0.0
@@ -162,7 +166,7 @@ public final class SonarEngine: @unchecked Sendable {
             let pilot = try PilotPlayer(device: spk)
             let pipeline = GesturePipeline(
                 sampleRate: capture.sampleRate, channels: capture.channels, layout: s.layout, detector: s.detector,
-                fusion: s.fusion)
+                fusion: s.fusion, interaction: s.interaction)
             pipeline.wantsDisplay = wantsDisplay
             speakers = spk
             readSpeakerLevel()
@@ -191,7 +195,7 @@ public final class SonarEngine: @unchecked Sendable {
             let layout = recording.metadata.map { PilotLayout(pilots: $0.pilots) } ?? s.layout
             let pipeline = GesturePipeline(
                 sampleRate: recording.sampleRate, channels: recording.channels.count, layout: layout, detector: s.detector,
-                fusion: s.fusion)
+                fusion: s.fusion, interaction: s.interaction)
             pipeline.wantsDisplay = wantsDisplay
             self.pipeline = pipeline
             replay = ReplayState(
@@ -238,6 +242,7 @@ public final class SonarEngine: @unchecked Sendable {
         }
         if s.detector != old.detector { pipeline.detectorConfig = s.detector }
         if s.fusion != old.fusion { pipeline.fusionConfig = s.fusion }
+        if s.interaction != old.interaction { pipeline.interactionConfig = s.interaction }
         if s.level != old.level { refreshLevel(force: true) }
     }
 
@@ -263,7 +268,7 @@ public final class SonarEngine: @unchecked Sendable {
 
     private func tickLive(_ now: Double) {
         guard let capture, let pipeline else { return }
-        if now - lastVolumeCheck >= 0.5 {
+        if now - lastVolumeCheck >= 0.2 {
             lastVolumeCheck = now
             refreshLevel(force: false)
         }
@@ -316,6 +321,7 @@ public final class SonarEngine: @unchecked Sendable {
         // While paused the pilot is off, so anything detected is meaningless.
         guard case .paused = status else {
             pendingEvents += out.events
+            pendingControls += out.controls
             out.events.forEach { recorder?.noteEvent($0) }
             return
         }
@@ -354,10 +360,10 @@ public final class SonarEngine: @unchecked Sendable {
         decision = new
         if let amplitude = new.amplitudeDBFS {
             pilot.setAmplitude(Self.linear(amplitude))
+            // Volume changes are compensated, so the tone's acoustic level stays put: keep the baselines
+            // (resetting them on every step would blind the detector while someone dials the volume).
             if old.amplitudeDBFS == nil {
                 pilot.setTones(Self.tones(for: pipeline))
-                pipeline.resetBaselines()
-            } else if let previous = old.amplitudeDBFS, abs(previous - amplitude) > 1 {
                 pipeline.resetBaselines()
             }
             if case .paused = status { status = .running }
@@ -399,6 +405,7 @@ public final class SonarEngine: @unchecked Sendable {
         var out = EngineOutput()
         out.frames = deliverAllFrames ? pendingFrames : Array(pendingFrames.suffix(1))
         out.events = pendingEvents
+        out.controls = pendingControls
         out.status = status
         out.bands = pipeline?.bands ?? []
         out.displayHalfWidth = pipeline?.displayHalfWidth ?? 64
@@ -411,6 +418,7 @@ public final class SonarEngine: @unchecked Sendable {
         out.savedRecording = savedRecording
         pendingFrames = []
         pendingEvents = []
+        pendingControls = []
         savedRecording = nil
         onOutput(out)
     }

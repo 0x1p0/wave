@@ -16,6 +16,8 @@ public final class FeatureHistory {
     public private(set) var reference: [Float]
     public private(set) var velocity: [Float]
     public private(set) var pilot: [Float]
+    public private(set) var micro: [Float]
+    public private(set) var phaseVelocity: [Float]
 
     // Spectrogram: one column per frame, rows = bands × (2·halfWidth + 1), highest frequency at the top.
     public private(set) var rows = 0
@@ -33,6 +35,8 @@ public final class FeatureHistory {
         reference = Array(repeating: 0, count: capacity)
         velocity = Array(repeating: 0, count: capacity)
         pilot = Array(repeating: -120, count: capacity)
+        micro = Array(repeating: 0, count: capacity)
+        phaseVelocity = Array(repeating: 0, count: capacity)
     }
 
     public func clear() {
@@ -56,6 +60,8 @@ public final class FeatureHistory {
         reference[idx] = f.referenceDB
         velocity[idx] = f.velocity
         pilot[idx] = f.pilotDB
+        micro[idx] = frame.bands.map(\.microDB).max() ?? f.microDB
+        phaseVelocity[idx] = f.basebandVelocity
         if !frame.display.isEmpty { writeColumn(frame.display, at: idx, halfWidth: halfWidth, bandCount: bandCount) }
         head = (head + 1) % capacity
         count = min(capacity, count + 1)
