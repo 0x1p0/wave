@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+build/
+DerivedData/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+# Debug audio recordings (opt-in only) never go into git.
+*.caf
+Recordings/
+*.profraw
