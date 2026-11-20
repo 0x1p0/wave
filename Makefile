@@ -67,9 +67,11 @@ install: app
 	open /Applications/Wave.app
 	@echo "Wave is running: look for the hand icon in the menu bar."
 
-# Install, start, and open the live gesture tutorial.
-tutorial: install
-	open /Applications/Wave.app --args --tutorial
+# Install, start, and open the live gesture tutorial (a fresh launch, so the argument reaches the app).
+tutorial: app
+	@osascript -e 'tell application id "local.wave.Wave" to quit' >/dev/null 2>&1; sleep 1; true
+	ditto "$(APP)" /Applications/Wave.app
+	open -n /Applications/Wave.app --args --tutorial
 
 # Run the freshly built app without installing.
 run: app
