@@ -44,7 +44,8 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
 - "Doppler visible" (M0) = while waving, 95th-percentile sideband energy is ≥ 6 dB above the still-hand mean
   on **both** sides.
 - Frequencies below 18.5 kHz are treated as potentially audible and not recommended.
-- M0 result: usable pilot window on this Mac is ~18.75–19.25 kHz; primary pilot 19 kHz (18 996.1 Hz).
+- M0 result: usable pilot window on this Mac is ~18.75–19.25 kHz; default pilot 19 kHz (18 996.1 Hz) at
+  −8 dBFS with the speakers at 50 % (−18.6 dB); fallback 19.25 kHz.
 - Broadband noise bursts can raise both sidebands without any pilot; the detector needs a reference band.
 
 ## Volume

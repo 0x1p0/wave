@@ -4,7 +4,7 @@ Hand gestures in the air over a MacBook, detected with ultrasonic sonar. The bui
 inaudible pilot tone, the built-in mics hear its reflection off your hand, and the Doppler shift tells
 which way your hand moved. No camera, no extra hardware.
 
-**Status: M0 (feasibility probe)** — feasible in a narrow 18.75–19.25 kHz window; see
+**Status: M0 done** — feasible in a narrow 18.75–19.25 kHz window (19 kHz pilot at −8 dBFS); see
 [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The menu bar app arrives in M2.
 
 ## Privacy

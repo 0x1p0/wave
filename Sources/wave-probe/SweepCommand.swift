@@ -258,6 +258,9 @@ struct Report {
                 } else {
                     details.append("Amplitude: \(fmt(options.amplitudeDB, 0)) dBFS at this volume is about right; no headroom to lower it.")
                 }
+            } else if primary.skirtDB - primary.noiseDB < 12 {
+                details.append("Amplitude: the sideband floor is partly set by the speaker/mic chain, so more level still helps "
+                               + "but less than 1:1; Doppler margin \(fmt(minEx, sign: true)) dB at \(fmt(options.amplitudeDB, 0)) dBFS.")
             } else {
                 details.append("Amplitude: the sideband floor is set by the speaker/mic chain (it rises with the pilot), so level changes "
                                + "barely affect Doppler visibility; Doppler margin \(fmt(minEx, sign: true)) dB.")
