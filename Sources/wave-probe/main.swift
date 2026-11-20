@@ -9,6 +9,9 @@ let usage = """
       wave-probe devices
           Machine + audio hardware report. Plays and records nothing.
 
+      wave-probe speakers [--volume PCT | --mute]
+          Shows or sets the built-in speakers' own volume/mute, without changing your default output.
+
       wave-probe sweep [options]
           Steps the pilot through 17–22.5 kHz: level, noise floor, SNR and Doppler visibility.
           --start HZ        first frequency (17000)
@@ -45,7 +48,7 @@ struct Arguments {
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -109,6 +112,12 @@ do {
         try args.checkKnown([])
         exitCode = DevicesCommand.run()
 
+    case "speakers":
+        try args.checkKnown(["volume", "mute", "output-uid"])
+        exitCode = try SpeakersCommand.run(
+            volumePercent: try args.double("volume"), mute: args.flags.contains("mute"),
+            uid: args.values["output-uid"]?.last)
+
     case "sweep":
         try args.checkKnown(["start", "end", "step", "amplitude", "wave", "skip-wave", "rate", "out", "ignore-volume", "output-uid", "input-uid"])
         var o = SweepCommand.Options()
@@ -122,6 +131,7 @@ do {
         o.skipWave = args.flags.contains("skip-wave")
         o.overrides = DeviceOverrides(outputUID: args.values["output-uid"]?.last, inputUID: args.values["input-uid"]?.last)
         o.ignoreVolume = args.flags.contains("ignore-volume")
+        guard try Environment.speakerPreflight(o.overrides, ignoreVolume: o.ignoreVolume) else { exit(2) }
         exitCode = await ensureMicrophoneAccess() ? try SweepCommand(options: o).run() : 3
 
     case "live":
@@ -138,6 +148,7 @@ do {
         o.overrides = DeviceOverrides(outputUID: args.values["output-uid"]?.last, inputUID: args.values["input-uid"]?.last)
         o.ignoreVolume = args.flags.contains("ignore-volume")
         o.ascii = args.flags.contains("ascii") || !Term.isTTY
+        guard try Environment.speakerPreflight(o.overrides, ignoreVolume: o.ignoreVolume) else { exit(2) }
         exitCode = await ensureMicrophoneAccess() ? try LiveCommand(options: o).run() : 3
 
     case nil where args.flags.contains("help"), "help":

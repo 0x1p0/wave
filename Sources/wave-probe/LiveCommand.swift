@@ -23,11 +23,6 @@ struct LiveCommand {
     func run() throws -> Int32 {
         let speakers = try options.overrides.speakers()
         let spk = Environment.speakerState(speakers)
-        if let fatal = spk.fatal {
-            print("✗ \(fatal)")
-            guard options.ignoreVolume else { return 2 }
-            print("  (--ignore-volume: continuing anyway; the pilot will not be audible to the mic)")
-        }
         if let warning = spk.warning { print("! \(warning)") }
 
         let engine = try ProbeEngine(amplitudeDB: options.amplitudeDB, micRate: options.micRate, overrides: options.overrides)

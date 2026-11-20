@@ -178,15 +178,25 @@ enum Environment {
         var summary = vol.map { "volume \(Int(($0 * 100).rounded()))%" } ?? "volume unknown"
         if let db { summary += String(format: " (%.1f dB)", db) }
         if muted { summary += ", MUTED" }
-        let howTo = """
-            Control Center → Sound → choose "\(speakers.name)", adjust, then switch back to your \
-            headphones/AirPods if you like (each device remembers its own volume).
-            """
-        if muted { return (summary, "\(speakers.name) are muted, so the pilot can't play. Unmute them: \(howTo)", nil) }
+        let howTo = "run `make speakers` (sets them to 50 % without changing your default output)."
+        if muted || (vol ?? 1) == 0 {
+            return (summary, "\(speakers.name) are \(muted ? "muted" : "at 0 %"), so the pilot can't play. To fix, \(howTo)", nil)
+        }
         if let vol, vol < 0.2 {
-            return (summary, nil, "Speaker volume is low (\(Int(vol * 100))%). For the probe set it to ~50%: \(howTo)")
+            return (summary, nil, "Speaker volume is low (\(Int(vol * 100))%). For the probe, \(howTo)")
         }
         return (summary, nil, nil)
+    }
+}
+
+extension Environment {
+    /// Refuses to start (before asking for mic access) when the speakers can't play the pilot.
+    static func speakerPreflight(_ overrides: DeviceOverrides, ignoreVolume: Bool) throws -> Bool {
+        guard let fatal = speakerState(try overrides.speakers()).fatal else { return true }
+        print("✗ \(fatal)")
+        guard ignoreVolume else { return false }
+        print("  (--ignore-volume: continuing anyway; the pilot will not be audible to the mic)")
+        return true
     }
 }
 

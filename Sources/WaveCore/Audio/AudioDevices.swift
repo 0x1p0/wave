@@ -164,6 +164,39 @@ public enum AudioDevices {
         return nil
     }
 
+    /// Sets the device's own volume slider (0…1). Only for explicit user requests: the Wave app never
+    /// changes system volume by itself.
+    public static func setVolumeScalar(_ id: AudioObjectID, _ value: Float, scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeOutput) throws {
+        let v = Float32(min(1, max(0, value)))
+        let candidates = [
+            CAProperty.address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, scope),
+            CAProperty.address(kAudioDevicePropertyVolumeScalar, scope),
+        ]
+        if let addr = candidates.first(where: { CAProperty.isSettable(id, $0) }) {
+            try CAProperty.setValue(id, addr, v)
+            return
+        }
+        let channels = (1...max(1, CAProperty.channelCount(id, scope: scope)))
+            .map { CAProperty.address(kAudioDevicePropertyVolumeScalar, scope, UInt32($0)) }
+            .filter { CAProperty.isSettable(id, $0) }
+        guard !channels.isEmpty else { throw CoreAudioError(-1, "this device's volume is not settable") }
+        for addr in channels { try CAProperty.setValue(id, addr, v) }
+    }
+
+    public static func setMuted(_ id: AudioObjectID, _ muted: Bool, scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeOutput) throws {
+        let value = UInt32(muted ? 1 : 0)
+        let main = CAProperty.address(kAudioDevicePropertyMute, scope)
+        if CAProperty.isSettable(id, main) {
+            try CAProperty.setValue(id, main, value)
+            return
+        }
+        let channels = (1...max(1, CAProperty.channelCount(id, scope: scope)))
+            .map { CAProperty.address(kAudioDevicePropertyMute, scope, UInt32($0)) }
+            .filter { CAProperty.isSettable(id, $0) }
+        guard !channels.isEmpty else { throw CoreAudioError(-1, "this device's mute is not settable") }
+        for addr in channels { try CAProperty.setValue(id, addr, value) }
+    }
+
     // MARK: Sample rate
 
     /// Changes a device's nominal sample rate. This is system-wide (affects other apps using the device),

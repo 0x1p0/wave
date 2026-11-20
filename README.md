@@ -26,6 +26,7 @@ make test      # unit tests (xcodebuild test)
 
 ```sh
 make devices   # machine + audio hardware report (plays/records nothing)
+make speakers  # set the built-in speakers' own volume to 50 % (VOL=75 make speakers), default output unchanged
 make sweep     # 17–22.5 kHz sweep → docs/m0-sweep-48k.md
 make sweep96   # same with the mic temporarily at 96 kHz → docs/m0-sweep-96k.md
 make live      # live spectrogram around 20 kHz (FREQ=19000 make live for another pilot)
@@ -33,7 +34,8 @@ make live      # live spectrogram around 20 kHz (FREQ=19000 make live for anothe
 
 The pilot always goes to the **built-in speakers** and is captured from the **built-in mic**, whatever
 the system default devices are (AirPods, wired headphones, …). The speakers must not be muted, and their
-own volume (separate from your headphones' volume) should be ~50 % for the probe.
+own volume (separate from your headphones' volume) should be ~50 % for the probe: `make speakers` sets that
+directly through Core Audio without switching your output away from your headphones.
 
 Run it from a terminal app that has microphone access (System Settings → Privacy & Security →
 Microphone). The orange mic indicator is on while the probe runs.

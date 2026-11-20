@@ -8,7 +8,7 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe test devices sweep sweep96 live clean
+.PHONY: probe test devices speakers sweep sweep96 live clean
 
 probe:
 	@xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
@@ -19,6 +19,10 @@ test:
 
 devices: probe
 	$(PROBE) devices
+
+# Built-in speakers' own volume (default 50 %), without changing the default output. VOL=75 make speakers
+speakers: probe
+	$(PROBE) speakers --volume $(or $(VOL),50)
 
 # M0 feasibility sweep at the mic's current rate (48 kHz). Report → docs/m0-sweep-48k.md
 sweep: probe
