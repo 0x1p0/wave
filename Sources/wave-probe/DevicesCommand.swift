@@ -47,6 +47,14 @@ enum DevicesCommand {
               + (micGain.map { ", input gain \(Int(($0 * 100).rounded()))%" } ?? ""))
         print("  Mic permission for this terminal: \(Environment.permissionName(MicCapture.permission))")
         print("  Mic mode (Control Center): \(Environment.micModeName())  (raw AUHAL capture; no voice processing/AGC)")
+        if MicCapture.permission == .denied || MicCapture.permission == .restricted {
+            print("""
+
+                ✗ Microphone access is denied for the app this command runs under (macOS attributes a CLI to
+                  its terminal app). Run it from Terminal.app, which asks the first time, or enable that app in
+                  System Settings → Privacy & Security → Microphone.
+                """)
+        }
         if let fatal = spk.fatal { print("\n✗ \(fatal)") }
         if let warning = spk.warning { print("\n! \(warning)") }
         return 0

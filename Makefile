@@ -2,13 +2,16 @@ SHELL       := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
 DERIVED := build/DerivedData
-DEST    := platform=macOS,arch=$(shell uname -m)
+# variant=macos avoids xcodebuild picking among Mac / Catalyst / DriverKit / "Designed for iPad".
+DEST    := platform=macOS,arch=$(shell uname -m),variant=macos
 PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
+# Harmless internal xcodebuild log line for Swift packages.
+QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
 .PHONY: probe test devices sweep sweep96 live clean
 
 probe:
-	xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet
+	@xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
 	@echo "Built $(PROBE)"
 
 test:
