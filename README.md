@@ -9,18 +9,25 @@ You're eating, you push your hand toward the screen and back, and YouTube pauses
 | Gesture | How | Default action |
 |---|---|---|
 | **Push** | hand toward the screen and straight back (~0.5 s) | Play/Pause |
-| **Hold & slide** *(experimental)* | bring an open hand to ~20 cm and hold still until ✋ appears, then slide it **slowly** closer (up) or farther (down); hold still a moment longer to switch from volume to brightness; pull away to finish | Volume, then Brightness |
-| **Grab** *(experimental)* | from the same raised, still hand: close it into a fist | Minimize window |
-| **Swipe left / right** *(experimental, two tones)* | a brisk sideways pass 15–30 cm in front of the screen | Previous / Next track, or the **Desktops** preset: next / previous desktop |
+| **Pull** | start close, move away and straight back | nothing (map it: e.g. Minimize) |
+| **Hover controls** | bring your hand up ~20 cm from the screen and hold it until ✋ appears; then **push = up, pull = down** (10 % each); hold still to switch volume ↔ brightness; move your hand away to finish | Volume, Brightness |
+| **Grab** *(experimental)* | from the raised hand (✋): close it into a fist | Minimize window |
+| **Swipe left / right** *(experimental, two tones)* | a brisk sideways pass 15–30 cm in front of the screen | Previous / Next track, or the **Desktops** preset |
+
+**Learn them in the app:** menu → **Learn gestures…** opens a live, interactive tutorial that shows your
+hand the way Wave senses it (toward = green, away = orange, finger motion = pink), counts each gesture and
+explains why a try didn't count ("a bit slow", "didn't come back out", …). `make tutorial` installs Wave and
+opens it.
 
 Each gesture can be mapped to a media key, a window/desktop/volume/brightness action, a keyboard shortcut,
 or a Shortcuts-app shortcut (Settings → Gestures).
 
-**What's solid and what's experimental.** Push uses Doppler on a single tone and is the robust one. Hold &
-slide and grab rely on *phase tracking* of the echo (below), which resolves millimetres but has only been
-tuned on synthetic data and a handful of real recordings. Swipes need two tones, and the 13" Air's speakers
-sit close together. Calibrate (menu → Calibrate…) after enabling any of them, and use the debug window to
-see why a gesture was or wasn't recognised.
+**What's solid and what's experimental.** Push, pull and the hover controls are built on fast Doppler motion,
+which real recordings on a MacBook Air M4 detect reliably (every recorded push, no false pulls or holds).
+Slow sliding was dropped: real recordings showed the slow-motion echo sits only ~5–14 dB above noise.
+Grab depends on faint finger motion and may not register on every Mac or hand; the tutorial's finger-motion
+meter shows whether yours does. Swipes need two tones (18.75 / 19.25 kHz, one per speaker), and the 13"
+Air's speakers sit close together.
 
 ## Privacy
 

@@ -114,11 +114,13 @@ struct FalseTriggerTests {
         #expect(scene.detect(x).events.filter(\.isAccepted).isEmpty)
     }
 
-    @Test func pullIsNotAPush() {
+    @Test func pullIsAPullNotAPush() {
         // Away first, then back toward the screen.
         let push = SyntheticSignal.pushVelocity(start: 1.5)
         let x = scene.render(echoes: [(Scene.handEcho, { -push($0) })])
-        #expect(scene.detect(x).events.filter(\.isAccepted).isEmpty)
+        let accepted = scene.detect(x).events.filter(\.isAccepted)
+        #expect(accepted.count == 1)
+        #expect(accepted.first?.kind == .pull)
     }
 
     @Test func broadbandBurstIsRejected() {

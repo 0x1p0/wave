@@ -136,8 +136,9 @@ struct GestureSettings: View {
                     ActionPicker(title: "Swipe left (hand moves right → left)", action: $model.prefs.mapping.swipeLeft, shortcuts: shortcuts)
                     ActionPicker(title: "Swipe right (hand moves left → right)", action: $model.prefs.mapping.swipeRight, shortcuts: shortcuts)
                 }
+                ActionPicker(title: "Pull (away from the screen and back)", action: $model.prefs.mapping.pull, shortcuts: shortcuts)
                 if model.prefs.grabEnabled {
-                    ActionPicker(title: "Grab (raise an open hand, hold, close it)", action: $model.prefs.mapping.grab, shortcuts: shortcuts)
+                    ActionPicker(title: "Grab (raise an open hand, hold, close it — experimental)", action: $model.prefs.mapping.grab, shortcuts: shortcuts)
                 }
                 HStack {
                     Text("Swipe presets").foregroundStyle(.secondary)
@@ -160,8 +161,8 @@ struct GestureSettings: View {
             Section {
                 Toggle(isOn: $model.prefs.dialEnabled) {
                     VStack(alignment: .leading) {
-                        Text("Hold & slide: volume and brightness (experimental)")
-                        Text("Bring an open hand to about 20 cm from the screen and hold it still. When ✋ appears, slide it slowly closer to turn up, farther to turn down. Hold still a moment longer to switch to the next control. Pull away to finish.")
+                        Text("Hover controls: volume and brightness")
+                        Text("Bring your hand up about 20 cm from the screen and hold it until ✋ appears. Then push to turn up, pull to turn down. Hold still to switch between controls; move your hand away to finish.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -172,11 +173,10 @@ struct GestureSettings: View {
                         Text("Volume only").tag([DialTarget.volume])
                         Text("Brightness only").tag([DialTarget.brightness])
                     }
-                    LabeledContent("Speed") {
-                        HStack {
-                            Slider(value: $model.prefs.dialSpeed, in: 2...12, step: 1)
-                            Text("\(Int(model.prefs.dialSpeed)) % per cm").monospacedDigit().frame(width: 90)
-                        }
+                    Picker("Step per push / pull", selection: $model.prefs.dialStep) {
+                        Text("5 %").tag(5.0)
+                        Text("10 %").tag(10.0)
+                        Text("20 %").tag(20.0)
                     }
                     if !BrightnessController.isAvailable {
                         Text("Smooth brightness isn't available on this Mac; brightness changes in key-sized steps.")
@@ -186,7 +186,7 @@ struct GestureSettings: View {
                 Toggle(isOn: $model.prefs.grabEnabled) {
                     VStack(alignment: .leading) {
                         Text("Grab: close your raised hand into a fist (experimental)")
-                        Text("Works from the same raised, still hand. Calibrate with grabs for best results.")
+                        Text("Finger motion is faint on MacBook microphones. Check it in the tutorial; if the meter doesn't cross the line, use Pull instead.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -197,10 +197,16 @@ struct GestureSettings: View {
                                   granted: false, action: "Open Settings") { model.requestAccessibility() }
                 }
             }
+            Section {
+                Button("Open the gesture tutorial…") { model.showTutorial() }
+                Text("Live practice: see your hand the way Wave does, with tips when a gesture doesn't count.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Try it") {
                 HStack {
                     ForEach(GestureEvent.Kind.allCases.filter { k in
-                        k == .push || (k == .grab && model.prefs.grabEnabled) || (k != .grab && model.prefs.swipesEnabled)
+                        k == .push || k == .pull || (k == .grab && model.prefs.grabEnabled)
+                            || ((k == .swipeLeft || k == .swipeRight) && model.prefs.swipesEnabled)
                     }, id: \.self) { kind in
                         Button { model.perform(kind) } label: { Label(kind.title, systemImage: kind.symbol) }
                     }

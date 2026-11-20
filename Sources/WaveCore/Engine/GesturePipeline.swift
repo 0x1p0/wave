@@ -14,8 +14,10 @@ public struct PipelineFrame: Sendable {
 public struct PipelineOutput: Sendable {
     public var frames: [PipelineFrame] = []
     public var events: [GestureEvent] = []
-    /// Hold / dial interaction (ready, adjust, ended).
+    /// Hover interaction (ready, adjust, ended).
     public var controls: [ControlEvent] = []
+    /// Hover state after this chunk (for live views).
+    public var interactionPhase: InteractionDetector.Phase = .idle
     /// Largest absolute sample in this chunk (for silence detection).
     public var peak: Float = 0
 }
@@ -34,6 +36,7 @@ public final class GesturePipeline {
     public var detectorConfig: DetectorConfig {
         didSet {
             detectors.forEach { $0.config = detectorConfig }
+            pullDetector?.config = detectorConfig
             interaction.detector = detectorConfig
         }
     }
@@ -50,6 +53,8 @@ public final class GesturePipeline {
     private let slicer: FrameSlicer
     private let extractors: [FeatureExtractor]
     private let detectors: [PushDetector]
+    /// Pull (away → toward) on the strongest tone.
+    private var pullDetector: PushDetector!
     private let fusion = GestureFusion()
     private let trackers: [BasebandTracker]
     private let interaction = InteractionDetector()
@@ -58,6 +63,9 @@ public final class GesturePipeline {
     private var strongestBand: Int { bands.indices.min { bands[$0].pilotHz < bands[$1].pilotHz } ?? 0 }
     private var spectrum = [Float]()
     private var lastAcceptedEnd = -Double.infinity
+    private var claimedUntil = -Double.infinity
+    /// Pulls wait briefly: if a push overlaps them (its toward phase was the pull's return), the push wins.
+    private var pendingPull: (event: GestureEvent, release: Double)?
 
     /// Seconds of audio consumed.
     public var time: Double { Double(slicer.samplesConsumed) / sampleRate }
@@ -106,6 +114,8 @@ public final class GesturePipeline {
             ]
         }
         detectors = bands.map { PushDetector(pilotHz: $0.pilotHz, config: detector) }
+        let strongestHz = bands.map(\.pilotHz).min() ?? bands[0].pilotHz
+        pullDetector = PushDetector(pilotHz: strongestHz, config: detector, mirrored: true)
         trackers = bands.map { BasebandTracker(pilotHz: $0.pilotHz, sampleRate: sampleRate) }
         fusion.config = fusionConfig
         interaction.config = interactionConfig
@@ -115,6 +125,7 @@ public final class GesturePipeline {
     /// Keyboard/trackpad input happened at stream time `t`. Feed in time order.
     public func noteInput(at t: Double) {
         detectors.forEach { $0.noteInput(at: t) }
+        pullDetector.noteInput(at: t)
         interaction.noteInput(at: t)
     }
 
@@ -122,6 +133,9 @@ public final class GesturePipeline {
     public func resetBaselines() {
         extractors.forEach { $0.reset() }
         detectors.forEach { $0.reset() }
+        pullDetector.reset()
+        pendingPull = nil
+        claimedUntil = -Double.infinity
         fusion.reset()
         trackers.forEach { $0.reset() }
         interaction.reset()
@@ -165,14 +179,26 @@ public final class GesturePipeline {
                 }
             }
             if layout.isStereo { fusion.flush(now: t).forEach { accept($0, into: &out) } }
-            // Hold / slide / grab follow the strongest (lowest-frequency) tone only: averaging in a weaker
-            // tone's phase just adds noise.
-            let combined = features[strongestBand]
-            let (controls, interactionEvents) = interaction.process(combined, pilotHz: bands[0].pilotHz)
+            // Hover and grab follow the strongest (lowest-frequency) tone only: averaging in a weaker tone
+            // just adds noise. Pulls come from the same tone.
+            let strongest = features[strongestBand]
+            if let pull = pullDetector.process(strongest) {
+                if pull.isAccepted {
+                    pendingPull = (pull, t + detectorConfig.maxReversalGap + detectorConfig.endHold + 0.05)
+                } else {
+                    accept(pull, into: &out)
+                }
+            }
+            if let pending = pendingPull, t >= pending.release {
+                pendingPull = nil
+                accept(pending.event, into: &out)
+            }
+            let (controls, interactionEvents) = interaction.process(strongest, pilotHz: bands[strongestBand].pilotHz)
             out.controls += controls
             interactionEvents.forEach { accept($0, into: &out) }
             out.frames.append(PipelineFrame(time: t, bands: features, display: wantsDisplay ? displayColumn() : []))
         }
+        out.interactionPhase = interaction.phase
         return out
     }
 
@@ -192,10 +218,25 @@ public final class GesturePipeline {
         return c
     }
 
+    /// One motion, one gesture. A push's second half looks like the start of a pull (and push-push like
+    /// push-pull-push), so once a gesture is accepted, candidates that *started inside it* are dropped.
+    /// While hovering, gestures turn into controls instead (push = up, pull = down, moving away = done).
     private func accept(_ event: GestureEvent, into out: inout PipelineOutput) {
+        if event.start < claimedUntil - 0.02 { return }
+        if event.kind == .push, event.isAccepted, let pending = pendingPull, event.start <= pending.event.end + 0.05 {
+            pendingPull = nil  // the "pull" was the lead-in to this push
+        }
         if event.isAccepted {
             // Several pilots may see the same push: keep the first.
             guard event.end - lastAcceptedEnd > 0.3 else { return }
+        }
+        if let controls = interaction.consume(event) {
+            if event.isAccepted { claimedUntil = event.end; lastAcceptedEnd = event.end }
+            out.controls += controls
+            return
+        }
+        if event.isAccepted {
+            claimedUntil = event.end
             lastAcceptedEnd = event.end
         }
         out.events.append(event)

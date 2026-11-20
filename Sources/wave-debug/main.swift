@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--snapshot-tutorial"), i + 1 < args.count {
+            snapshotTutorial(to: args[i + 1], args: args)
+            return
+        }
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             snapshot(to: args[i + 1], args: args)
             return
@@ -51,6 +55,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) { model.shutdown() }
+
+    /// Renders the tutorial after feeding it a recording up to `--until` seconds (for checking the UI).
+    private func snapshotTutorial(to path: String, args: [String]) {
+        let kindName = args.firstIndex(of: "--lesson").map { args[$0 + 1] } ?? "push"
+        let until = args.firstIndex(of: "--until").flatMap { Double(args[$0 + 1]) } ?? .infinity
+        let kinds = Lesson.Kind.allCases
+        let tutorial = TutorialModel(lessons: kinds)
+        tutorial.index = kinds.firstIndex { $0.rawValue == kindName } ?? 1
+        if let i = args.firstIndex(of: "--replay"), i + 1 < args.count,
+           let recording = try? LoadedRecording.load(URL(fileURLWithPath: args[i + 1])) {
+            _ = Replay.run(recording) { out in
+                let frames = out.frames.filter { $0.time <= until }
+                guard !frames.isEmpty else { return }
+                let events = out.events.filter { $0.end <= until }
+                tutorial.ingest(frames: frames, events: events, controls: out.controls, phase: out.interactionPhase)
+            }
+        }
+        render(TutorialView(model: tutorial), size: NSSize(width: 940, height: 680), to: path, wait: 0.5)
+    }
+
+    private func render<V: View>(_ view: V, size: NSSize, to path: String, wait: Double) {
+        let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
+        host.appearance = NSAppearance(named: .darkAqua)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        self.window = window
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            host.layoutSubtreeIfNeeded()
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
+            host.cacheDisplay(in: host.bounds, to: rep)
+            guard let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
+            try? png.write(to: URL(fileURLWithPath: path))
+            print("Snapshot → \(path)")
+            exit(0)
+        }
+    }
 
     private func snapshot(to path: String, args: [String]) {
         if let i = args.firstIndex(of: "--replay"), i + 1 < args.count {

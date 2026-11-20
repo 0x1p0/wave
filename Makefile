@@ -8,7 +8,7 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture clean
+.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture tutorial clean
 
 probe:
 	@set -o pipefail; xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
@@ -66,6 +66,10 @@ install: app
 	ditto "$(APP)" /Applications/Wave.app
 	open /Applications/Wave.app
 	@echo "Wave is running: look for the hand icon in the menu bar."
+
+# Install, start, and open the live gesture tutorial.
+tutorial: install
+	open /Applications/Wave.app --args --tutorial
 
 # Run the freshly built app without installing.
 run: app

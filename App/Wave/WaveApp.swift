@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             signalSources.append(source)
         }
         model.launch()
+        // `open Wave.app --args --tutorial` opens the gesture tutorial straight away.
+        if CommandLine.arguments.contains("--tutorial") { model.showTutorial() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

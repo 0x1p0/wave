@@ -46,8 +46,10 @@ public enum EngineStatus: Sendable, Equatable {
 public struct EngineOutput: Sendable {
     public var frames: [PipelineFrame] = []
     public var events: [GestureEvent] = []
-    /// Hold / dial interaction events, in order.
+    /// Hover interaction events, in order.
     public var controls: [ControlEvent] = []
+    /// Hover state right now.
+    public var interactionPhase: InteractionDetector.Phase = .idle
     public var status: EngineStatus = .stopped
     public var bands: [PilotBand] = []
     public var displayHalfWidth = 64
@@ -91,6 +93,7 @@ public final class SonarEngine: @unchecked Sendable {
     private var pendingFrames: [PipelineFrame] = []
     private var pendingEvents: [GestureEvent] = []
     private var pendingControls: [ControlEvent] = []
+    private var interactionPhase: InteractionDetector.Phase = .idle
     private var savedRecording: URL?
     private var lastDelivery = 0.0
     private var lastVolumeCheck = 0.0
@@ -318,6 +321,7 @@ public final class SonarEngine: @unchecked Sendable {
 
     private func handle(_ out: PipelineOutput) {
         pendingFrames += out.frames
+        interactionPhase = out.interactionPhase
         // While paused the pilot is off, so anything detected is meaningless.
         guard case .paused = status else {
             pendingEvents += out.events
@@ -406,6 +410,7 @@ public final class SonarEngine: @unchecked Sendable {
         out.frames = deliverAllFrames ? pendingFrames : Array(pendingFrames.suffix(1))
         out.events = pendingEvents
         out.controls = pendingControls
+        out.interactionPhase = interactionPhase
         out.status = status
         out.bands = pipeline?.bands ?? []
         out.displayHalfWidth = pipeline?.displayHalfWidth ?? 64

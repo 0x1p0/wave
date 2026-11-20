@@ -222,6 +222,7 @@ struct CalibrationView: View {
         case .swipeLeft: return "Swipe left \(session.target) times"
         case .swipeRight: return "Swipe right \(session.target) times"
         case .grab: return "Grab \(session.target) times"
+        case .pull: return "Pull \(session.target) times"
         }
     }
 
@@ -231,6 +232,7 @@ struct CalibrationView: View {
         case .swipeLeft: return "Move your hand from the right side of the laptop to the left, briskly. Pause between swipes."
         case .swipeRight: return "Move your hand from the left side of the laptop to the right, briskly. Pause between swipes."
         case .grab: return "Raise your open hand about 20 cm in front of the screen and hold it still until it says Ready, then close it into a fist. Open it, lower your hand, and repeat."
+        case .pull: return "Start close to the screen, move your hand away and straight back."
         }
     }
 }

@@ -5,7 +5,7 @@ import SwiftUI
 /// open from AppKit callbacks, so it manages these itself.)
 @MainActor
 final class WindowManager: NSObject, NSWindowDelegate {
-    enum Kind: String { case settings, onboarding, calibration, debug, samples }
+    enum Kind: String { case settings, onboarding, calibration, debug, samples, tutorial }
 
     private var windows: [Kind: NSWindow] = [:]
     private var onClose: [Kind: () -> Void] = [:]

@@ -28,8 +28,8 @@ struct WavePreferences: Codable, Equatable {
     var dialEnabled = true
     /// What the dial adjusts; holding still switches to the next one.
     var dialTargets: [DialTarget] = [.volume, .brightness]
-    /// Level change per centimetre of hand movement (%).
-    var dialSpeed = 5.0
+    /// Level change per push / pull while hovering (%).
+    var dialStep = 10.0
     /// Close your raised hand into a fist.
     var grabEnabled = true
     var calibration: CalibrationProfile?
@@ -58,7 +58,7 @@ struct WavePreferences: Codable, Equatable {
         mapping = v(.mapping, d.mapping)
         dialEnabled = v(.dialEnabled, d.dialEnabled)
         dialTargets = v(.dialTargets, d.dialTargets)
-        dialSpeed = v(.dialSpeed, d.dialSpeed)
+        dialStep = v(.dialStep, d.dialStep)
         grabEnabled = v(.grabEnabled, d.grabEnabled)
         calibration = try? c.decodeIfPresent(CalibrationProfile.self, forKey: .calibration)
         hasCompletedOnboarding = v(.hasCompletedOnboarding, d.hasCompletedOnboarding)
@@ -68,7 +68,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
-        case dialEnabled, dialTargets, dialSpeed, grabEnabled
+        case dialEnabled, dialTargets, dialStep, grabEnabled
     }
 
     // MARK: Persistence
@@ -104,7 +104,7 @@ struct WavePreferences: Codable, Equatable {
         s.detector.sensitivity = sensitivity
         s.interaction.dialEnabled = dialEnabled && !dialTargets.isEmpty
         s.interaction.dialTargets = max(1, dialTargets.count)
-        s.interaction.dialGain = Float(dialSpeed)
+        s.interaction.dialStep = dialStep / 100
         s.interaction.grabEnabled = grabEnabled
         return s
     }
@@ -116,13 +116,16 @@ struct GestureMapping: Codable, Equatable {
     var swipeLeft: GestureAction = .media(.previous)
     var swipeRight: GestureAction = .media(.next)
     var grab: GestureAction = .system(.minimizeWindow)
+    var pull: GestureAction = .none
 
     init(push: GestureAction = .media(.playPause), swipeLeft: GestureAction = .media(.previous),
-         swipeRight: GestureAction = .media(.next), grab: GestureAction = .system(.minimizeWindow)) {
+         swipeRight: GestureAction = .media(.next), grab: GestureAction = .system(.minimizeWindow),
+         pull: GestureAction = .none) {
         self.push = push
         self.swipeLeft = swipeLeft
         self.swipeRight = swipeRight
         self.grab = grab
+        self.pull = pull
     }
 
     init(from decoder: Decoder) throws {
@@ -132,9 +135,10 @@ struct GestureMapping: Codable, Equatable {
         if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .swipeLeft) { swipeLeft = v }
         if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .swipeRight) { swipeRight = v }
         if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .grab) { grab = v }
+        if let v = try? c.decodeIfPresent(GestureAction.self, forKey: .pull) { pull = v }
     }
 
-    private enum CodingKeys: String, CodingKey { case push, swipeLeft, swipeRight, grab }
+    private enum CodingKeys: String, CodingKey { case push, swipeLeft, swipeRight, grab, pull }
 
     subscript(kind: GestureEvent.Kind) -> GestureAction {
         get {
@@ -143,6 +147,7 @@ struct GestureMapping: Codable, Equatable {
             case .swipeLeft: return swipeLeft
             case .swipeRight: return swipeRight
             case .grab: return grab
+            case .pull: return pull
             }
         }
         set {
@@ -151,6 +156,7 @@ struct GestureMapping: Codable, Equatable {
             case .swipeLeft: swipeLeft = newValue
             case .swipeRight: swipeRight = newValue
             case .grab: grab = newValue
+            case .pull: pull = newValue
             }
         }
     }

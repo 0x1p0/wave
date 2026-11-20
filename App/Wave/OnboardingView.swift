@@ -140,6 +140,10 @@ struct OnboardingView: View {
                 get: { model.loginItemStatus == .enabled },
                 set: { model.setLaunchAtLogin($0) }))
             HStack {
+                Button("Open the gesture tutorial…") { model.showTutorial() }
+                Text("Live practice: see your hand the way Wave does.").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
                 Button("Calibrate now…") { model.showCalibration() }
                 Text("Optional: tunes the thresholds to your room and hand.").font(.caption).foregroundStyle(.secondary)
             }

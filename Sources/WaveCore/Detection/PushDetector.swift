@@ -7,6 +7,8 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         case swipeLeft = "swipe left"
         case swipeRight = "swipe right"
         case grab
+        /// Away from the screen and back (the mirror of a push).
+        case pull
     }
 
     public enum Outcome: String, Sendable, Codable {
@@ -61,6 +63,8 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
 public final class PushDetector {
     public var config: DetectorConfig
     public let pilotHz: Double
+    /// Mirror image: detects away → toward (a pull) instead of toward → away.
+    public let mirrored: Bool
 
     private enum Phase { case idle, toward, away }
     private var phase = Phase.idle
@@ -77,9 +81,10 @@ public final class PushDetector {
     /// Detection starts `warmUp` after the first frame (and again after `reset()`).
     private var activeFrom: Double?
 
-    public init(pilotHz: Double, config: DetectorConfig = DetectorConfig()) {
+    public init(pilotHz: Double, config: DetectorConfig = DetectorConfig(), mirrored: Bool = false) {
         self.pilotHz = pilotHz
         self.config = config
+        self.mirrored = mirrored
     }
 
     /// Records keyboard/trackpad input at stream time `t`.
@@ -92,7 +97,12 @@ public final class PushDetector {
         refractoryUntil = -Double.infinity
     }
 
-    public func process(_ f: BandFeatures) -> GestureEvent? {
+    public func process(_ input: BandFeatures) -> GestureEvent? {
+        var f = input
+        if mirrored {
+            swap(&f.towardDB, &f.awayDB)
+            f.velocity = -f.velocity
+        }
         let on = config.effectiveOnDB
         let off = config.effectiveOffDB
         if activeFrom == nil { activeFrom = f.time + config.warmUp }
@@ -176,6 +186,9 @@ public final class PushDetector {
             outcome = .tooFast
         } else if min(towardPeak, awayPeak) < config.effectiveMinPeakDB {
             outcome = .weak
+        } else if mirrored && awayPeak - towardPeak > 6 {
+            // A pull's away phase must be a real move, not the little dip people make before a push.
+            outcome = .weak
         } else {
             outcome = .accepted
         }
@@ -196,7 +209,15 @@ public final class PushDetector {
     }
 
     private func event(_ outcome: GestureEvent.Outcome, end: Double, confidence: Double) -> GestureEvent {
-        GestureEvent(
+        if mirrored {
+            // Report in physical terms: the first phase was away, the second toward.
+            return GestureEvent(
+                kind: .pull, outcome: outcome, pilotHz: pilotHz, start: towardStart, end: end,
+                confidence: confidence, towardPeakDB: awayPeak, awayPeakDB: towardPeak,
+                towardPeakVelocity: -awayVelocity, awayPeakVelocity: -towardVelocity, maxReferenceDB: maxReference,
+                reversal: awayPeak > 0 ? awayStart : nil)
+        }
+        return GestureEvent(
             kind: .push, outcome: outcome, pilotHz: pilotHz, start: towardStart, end: end,
             confidence: confidence, towardPeakDB: towardPeak, awayPeakDB: awayPeak,
             towardPeakVelocity: towardVelocity, awayPeakVelocity: awayVelocity, maxReferenceDB: maxReference,

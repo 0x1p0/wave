@@ -20,6 +20,8 @@ final class AppModel {
         case hearingTest
         /// The debug window runs its own engine; gestures still trigger actions.
         case debugWindow
+        /// The gesture tutorial owns the engine (practice: no actions).
+        case tutorial
     }
 
     var prefs: WavePreferences {
@@ -147,7 +149,7 @@ final class AppModel {
             switch mode {
             case .hearingTest: return "Hearing test in progress"
             case .debugWindow: return "Debug window is listening"
-            case .calibrating, .sampling:
+            case .calibrating, .sampling, .tutorial:
                 if micPermission != .authorized { return "Microphone access needed" }
                 return system.pauseReason
             case .normal:
@@ -238,9 +240,9 @@ final class AppModel {
         let grabHint = prefs.grabEnabled ? "close your hand: \(prefs.mapping.grab.title)" : nil
         if let target = dialTarget {
             let pct = Int(((dialLevel ?? 0) * 100).rounded())
-            let others = prefs.dialTargets.count > 1 ? " · hold still for \(prefs.dialTargets.first { $0 != target }?.title ?? "")" : ""
+            let others = prefs.dialTargets.count > 1 ? " · hold still: \(prefs.dialTargets.first { $0 != target }?.title ?? "")" : ""
             hud.show(symbol: target.symbol, title: "\(target.title) \(pct) %",
-                     subtitle: "Slide closer ↑ / farther ↓" + others + (grabHint.map { " · " + $0 } ?? ""),
+                     subtitle: "Push ↑  Pull ↓" + others + " · move away: done",
                      level: dialLevel, sticky: true)
         } else if let grabHint {
             hud.show(symbol: "hand.raised.fill", title: "Ready", subtitle: grabHint.prefix(1).uppercased() + grabHint.dropFirst(),
@@ -423,6 +425,27 @@ final class AppModel {
         }
     }
 
+    func showTutorial() {
+        var lessons: [Lesson.Kind] = [.sonar, .push, .pull]
+        if prefs.dialEnabled { lessons.append(.hover) }
+        if prefs.grabEnabled { lessons.append(.grab) }
+        if prefs.swipesEnabled { lessons.append(.swipe) }
+        let settings = prefs.engineSettings
+        let tutorial = TutorialModel(lessons: lessons, grabMicroDB: settings.interaction.grabMicroDB,
+                                     onThresholdDB: settings.detector.effectiveOnDB,
+                                     dialTargetNames: prefs.dialTargets.map(\.title))
+        windows.show(.tutorial, title: "Learn Wave gestures", size: NSSize(width: 940, height: 680),
+                     onClose: { [weak self] in
+                        guard let self, self.mode == .tutorial else { return }
+                        self.endExclusive()
+                     }) {
+            TutorialView(model: tutorial) { [weak self] in self?.windows.close(.tutorial) }
+        }
+        beginExclusive(.tutorial, settings: settings) { [weak tutorial] out in
+            tutorial?.ingest(frames: out.frames, events: out.events, controls: out.controls, phase: out.interactionPhase)
+        }
+    }
+
     func showDebugWindow() {
         let debug = DebugModel()
         debug.baseSettings = prefs.engineSettings
@@ -458,6 +481,7 @@ extension GestureEvent.Kind {
         case .swipeLeft: return "Swipe left"
         case .swipeRight: return "Swipe right"
         case .grab: return "Grab"
+        case .pull: return "Pull"
         }
     }
 
@@ -467,6 +491,7 @@ extension GestureEvent.Kind {
         case .swipeLeft: return "arrow.left"
         case .swipeRight: return "arrow.right"
         case .grab: return "hand.raised.fingers.spread.fill"
+        case .pull: return "arrow.uturn.backward"
         }
     }
 }

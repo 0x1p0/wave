@@ -52,6 +52,7 @@ struct MenuView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 2) {
+                menuButton("Learn gestures…", "graduationcap") { model.showTutorial() }
                 menuButton("Settings…", "gearshape") { model.showSettings() }
                 menuButton("Calibrate…", "slider.horizontal.3") { model.showCalibration() }
                 menuButton("Debug window…", "waveform") { model.showDebugWindow() }

@@ -58,11 +58,9 @@ public enum Calibrator {
         var c = InteractionConfig()
         c.dialEnabled = false
         c.grabEnabled = true
-        c.grabMicroDB = max(5, microNoiseDB + 3)
-        c.grabRiseDB = 5
+        c.grabMicroDB = max(8, microNoiseDB + 3)
+        c.grabRiseDB = 6
         c.grabMaxDuration = 0.8
-        c.grabMaxDisplacement = 0.03
-        c.grabMaxNetSpeed = 0.05
         c.targetCycle = 6  // stay ready while the user gets ready to close the hand
         return c
     }
@@ -146,7 +144,7 @@ public enum Calibrator {
         let grabPeaks = grabs.compactMap(\.microPeakDB)
         if !grabPeaks.isEmpty {
             var i = InteractionConfig()
-            i.grabMicroDB = min(25, max(microNoise + 4, 0.6 * Stats.median(grabPeaks), 6))
+            i.grabMicroDB = min(28, max(microNoise + 6, 0.7 * Stats.median(grabPeaks), 12))
             i.grabRiseDB = min(i.grabRiseDB, max(5, 0.5 * (Stats.median(grabPeaks) - microNoise)))
             profile.interaction = i
             profile.grabPeaksDB = grabPeaks
