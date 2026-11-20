@@ -1,5 +1,5 @@
-SHELL       := /bin/bash
-.SHELLFLAGS := -o pipefail -c
+# macOS ships GNU make 3.81 (no .SHELLFLAGS), so piped recipes set pipefail themselves.
+SHELL := /bin/bash
 
 DERIVED := build/DerivedData
 # variant=macos avoids xcodebuild picking among Mac / Catalyst / DriverKit / "Designed for iPad".
@@ -8,14 +8,14 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe test devices speakers sweep sweep96 live clean
+.PHONY: probe test devices speakers sweep sweep96 confirm live clean
 
 probe:
-	@xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
+	@set -o pipefail; xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
 	@echo "Built $(PROBE)"
 
 test:
-	xcodebuild test -scheme Wave-Package -destination '$(DEST)' -derivedDataPath $(DERIVED) 2>&1 | grep -E '✔ Test run|✘|error:|TEST (SUCCEEDED|FAILED)'
+	@set -o pipefail; xcodebuild test -scheme Wave-Package -destination '$(DEST)' -derivedDataPath $(DERIVED) 2>&1 | grep -E '✔ Test run|✘|error:|TEST (SUCCEEDED|FAILED)'
 
 devices: probe
 	$(PROBE) devices
@@ -28,12 +28,17 @@ speakers: probe
 sweep: probe
 	$(PROBE) sweep --out docs/m0-sweep-48k.md
 
-# Same sweep with the mic temporarily at 96 kHz (restored afterwards).
+# Same sweep with mic and speakers temporarily at 96 kHz (restored afterwards).
 sweep96: probe
-	$(PROBE) sweep --rate 96000 --out docs/m0-sweep-96k.md
+	$(PROBE) sweep --rate 96000 --speaker-rate 96000 --out docs/m0-sweep-96k.md
 
+# M0 confirmation: 18.5–19.5 kHz with a louder pilot (−8 dBFS), both passes (~30 s).
+confirm: probe
+	$(PROBE) sweep --start 18500 --end 19500 --step 250 --amplitude -8 --out docs/m0-sweep-19k-loud.md
+
+# Live view around the recommended pilot. FREQ=18750 AMP=-12 make live
 live: probe
-	$(PROBE) live --freq $(or $(FREQ),20000)
+	$(PROBE) live --freq $(or $(FREQ),19000) --amplitude $(or $(AMP),-8)
 
 clean:
 	rm -rf build .build

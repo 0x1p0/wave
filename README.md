@@ -4,7 +4,8 @@ Hand gestures in the air over a MacBook, detected with ultrasonic sonar. The bui
 inaudible pilot tone, the built-in mics hear its reflection off your hand, and the Doppler shift tells
 which way your hand moved. No camera, no extra hardware.
 
-**Status: M0 (feasibility probe).** The menu bar app arrives in M2.
+**Status: M0 (feasibility probe)** — feasible in a narrow 18.75–19.25 kHz window; see
+[docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The menu bar app arrives in M2.
 
 ## Privacy
 
@@ -28,8 +29,9 @@ make test      # unit tests (xcodebuild test)
 make devices   # machine + audio hardware report (plays/records nothing)
 make speakers  # set the built-in speakers' own volume to 50 % (VOL=75 make speakers), default output unchanged
 make sweep     # 17–22.5 kHz sweep → docs/m0-sweep-48k.md
-make sweep96   # same with the mic temporarily at 96 kHz → docs/m0-sweep-96k.md
-make live      # live spectrogram around 20 kHz (FREQ=19000 make live for another pilot)
+make sweep96   # same with mic + speakers temporarily at 96 kHz → docs/m0-sweep-96k.md
+make confirm   # 18.5–19.5 kHz at −8 dBFS, still + waving → docs/m0-sweep-19k-loud.md
+make live      # live spectrogram around 19 kHz at −8 dBFS (FREQ=18750 AMP=-12 make live)
 ```
 
 The pilot always goes to the **built-in speakers** and is captured from the **built-in mic**, whatever

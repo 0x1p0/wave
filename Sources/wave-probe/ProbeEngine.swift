@@ -23,22 +23,33 @@ final class ProbeEngine {
     var amplitude: Float
     private(set) var spectrum = [Float]()
     private(set) var peakSample: Float = 0
-    private var restoreMicRate: Double?
+    /// Devices whose nominal sample rate we changed, with the rate to restore.
+    private var restoreRates: [(AudioObjectID, Double)] = []
 
     var sampleRate: Double { capture.sampleRate }
 
     /// FFT size and hop scale with the sample rate so 96 kHz keeps the same ~11.7 Hz / ~10.7 ms resolution.
-    init(amplitudeDB: Double, micRate: Double? = nil, overrides: DeviceOverrides = .init()) throws {
-        let speakers = try overrides.speakers()
-        var mic = try overrides.microphone()
-        if let micRate, abs(micRate - mic.nominalSampleRate) > 0.5 {
-            guard mic.availableSampleRates.contains(where: { $0.contains(micRate) }) else {
-                throw ProbeError("\(mic.name) does not support \(Int(micRate)) Hz (supports \(mic.sampleRatesDescription)).")
+    init(amplitudeDB: Double, micRate: Double? = nil, speakerRate: Double? = nil, overrides: DeviceOverrides = .init()) throws {
+        var restore: [(AudioObjectID, Double)] = []
+        func switchRate(_ device: AudioDevice, _ rate: Double?) throws -> AudioDevice {
+            guard let rate, abs(rate - (AudioDevices.nominalSampleRate(device.id) ?? 0)) > 0.5 else { return device }
+            guard device.availableSampleRates.contains(where: { $0.contains(rate) }) else {
+                throw ProbeError("\(device.name) does not support \(Int(rate)) Hz (supports \(device.sampleRatesDescription)).")
             }
-            restoreMicRate = mic.nominalSampleRate
-            try AudioDevices.setNominalSampleRate(mic.id, micRate)
-            mic = AudioDevices.device(id: mic.id) ?? mic
+            restore.append((device.id, AudioDevices.nominalSampleRate(device.id) ?? device.nominalSampleRate))
+            try AudioDevices.setNominalSampleRate(device.id, rate)
+            return AudioDevices.device(id: device.id) ?? device
         }
+        var speakers = try overrides.speakers()
+        var mic = try overrides.microphone()
+        do {
+            speakers = try switchRate(speakers, speakerRate)
+            mic = try switchRate(mic, micRate)
+        } catch {
+            for (id, rate) in restore.reversed() { try? AudioDevices.setNominalSampleRate(id, rate) }
+            throw error
+        }
+        restoreRates = restore
         self.speakers = speakers
         self.mic = mic
         self.amplitude = Float(pow(10, amplitudeDB / 20))
@@ -60,10 +71,8 @@ final class ProbeEngine {
     func shutdown() {
         pilot.stop()
         capture.stop()
-        if let restoreMicRate {
-            try? AudioDevices.setNominalSampleRate(mic.id, restoreMicRate)
-            self.restoreMicRate = nil
-        }
+        for (id, rate) in restoreRates.reversed() { try? AudioDevices.setNominalSampleRate(id, rate) }
+        restoreRates = []
     }
 
     func setTones(_ tones: [PilotTone]) { pilot.setTones(tones) }
@@ -108,8 +117,9 @@ final class ProbeEngine {
         }
     }
 
-    /// True if everything captured so far was exactly zero (typical when mic access is denied).
-    var heardDigitalSilence: Bool { peakSample == 0 }
+    /// Below −140 dBFS peak: no real microphone signal. Seen when mic access is denied, and once (M0) when
+    /// capture started right after back-to-back device sample-rate switches: the AUHAL ran but delivered ~0.
+    var heardDigitalSilence: Bool { peakSample < 1e-7 }
 
     func resetPeak() { peakSample = 0 }
 }

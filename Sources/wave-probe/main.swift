@@ -21,6 +21,7 @@ let usage = """
           --wave SEC        seconds of waving per frequency in pass 2 (2.5)
           --skip-wave       pass 1 only (no Doppler test)
           --rate HZ         temporarily switch the mic to this sample rate (restored afterwards)
+          --speaker-rate HZ temporarily switch the speakers to this sample rate (restored afterwards)
           --out PATH        Markdown report (wave-probe-report.md)
           --ignore-volume   run even if the speakers are muted (checks the capture path only)
 
@@ -119,7 +120,7 @@ do {
             uid: args.values["output-uid"]?.last)
 
     case "sweep":
-        try args.checkKnown(["start", "end", "step", "amplitude", "wave", "skip-wave", "rate", "out", "ignore-volume", "output-uid", "input-uid"])
+        try args.checkKnown(["start", "end", "step", "amplitude", "wave", "skip-wave", "rate", "speaker-rate", "out", "ignore-volume", "output-uid", "input-uid"])
         var o = SweepCommand.Options()
         if let v = try args.double("start") { o.start = v }
         if let v = try args.double("end") { o.end = v }
@@ -128,6 +129,7 @@ do {
         if let v = try args.double("wave") { o.waveSeconds = max(0.5, v) }
         if let v = args.values["out"]?.last { o.out = v }
         o.micRate = try args.double("rate")
+        o.speakerRate = try args.double("speaker-rate")
         o.skipWave = args.flags.contains("skip-wave")
         o.overrides = DeviceOverrides(outputUID: args.values["output-uid"]?.last, inputUID: args.values["input-uid"]?.last)
         o.ignoreVolume = args.flags.contains("ignore-volume")
@@ -135,7 +137,7 @@ do {
         exitCode = await ensureMicrophoneAccess() ? try SweepCommand(options: o).run() : 3
 
     case "live":
-        try args.checkKnown(["freq", "stereo", "amplitude", "span", "range", "duration", "ascii", "rate", "ignore-volume", "output-uid", "input-uid"])
+        try args.checkKnown(["freq", "stereo", "amplitude", "span", "range", "duration", "ascii", "rate", "speaker-rate", "ignore-volume", "output-uid", "input-uid"])
         var o = LiveCommand.Options()
         let freqs = try args.doubles("freq")
         if !freqs.isEmpty { o.frequencies = Array(freqs.prefix(ToneSet.capacity)) }
@@ -144,6 +146,7 @@ do {
         if let v = try args.double("range") { o.rangeDB = max(10, v) }
         o.duration = try args.double("duration")
         o.micRate = try args.double("rate")
+        o.speakerRate = try args.double("speaker-rate")
         o.stereo = args.flags.contains("stereo")
         o.overrides = DeviceOverrides(outputUID: args.values["output-uid"]?.last, inputUID: args.values["input-uid"]?.last)
         o.ignoreVolume = args.flags.contains("ignore-volume")

@@ -28,8 +28,9 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
   spectrum, never at output/input timing alignment.
 - AUHAL capture = raw: no voice processing, AGC or noise suppression. The mic's hardware input gain is left
   as the user set it and reported.
-- Sample rate: use the device's current nominal rate (48 kHz). Changing it is system-wide (affects other apps),
-  so only `--rate` does it, temporarily, and restores it. FFT size scales with rate to keep ~11.7 Hz bins.
+- Sample rate: **48 kHz, decided at M0** (96 kHz measured identical; see M0-FINDINGS.md). Wave never changes
+  device sample rates: it's system-wide, and a capture started during an async rate change can stay silent.
+  The probe's `--rate`/`--speaker-rate` exist only for measurement and restore afterwards.
 - Real-time threads: no allocation, no blocking locks. Parameters cross with try-lock
   (`OSAllocatedUnfairLock.withLockIfAvailable`) and fixed-size value types; audio crosses via an SPSC ring buffer.
 - Pilot: pure sine with 50 ms raised-cosine fades on every start, stop and frequency change.
@@ -43,6 +44,8 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
 - "Doppler visible" (M0) = while waving, 95th-percentile sideband energy is ≥ 6 dB above the still-hand mean
   on **both** sides.
 - Frequencies below 18.5 kHz are treated as potentially audible and not recommended.
+- M0 result: usable pilot window on this Mac is ~18.75–19.25 kHz; primary pilot 19 kHz (18 996.1 Hz).
+- Broadband noise bursts can raise both sidebands without any pilot; the detector needs a reference band.
 
 ## Volume
 

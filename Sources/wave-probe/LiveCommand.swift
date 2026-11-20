@@ -13,6 +13,7 @@ struct LiveCommand {
         var duration: Double?
         var ascii = false
         var micRate: Double?
+        var speakerRate: Double?
         var ignoreVolume = false
         var overrides = DeviceOverrides()
     }
@@ -25,7 +26,7 @@ struct LiveCommand {
         let spk = Environment.speakerState(speakers)
         if let warning = spk.warning { print("! \(warning)") }
 
-        let engine = try ProbeEngine(amplitudeDB: options.amplitudeDB, micRate: options.micRate, overrides: options.overrides)
+        let engine = try ProbeEngine(amplitudeDB: options.amplitudeDB, micRate: options.micRate, speakerRate: options.speakerRate, overrides: options.overrides)
         defer { engine.shutdown() }
         let bands = options.frequencies.map(engine.band)
         let tones: [PilotTone] = bands.enumerated().map { i, b in

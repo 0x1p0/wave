@@ -18,6 +18,7 @@ struct SweepCommand {
         var skipWave = false
         var out = "wave-probe-report.md"
         var micRate: Double?
+        var speakerRate: Double?
         var ignoreVolume = false
         var overrides = DeviceOverrides()
     }
@@ -44,10 +45,21 @@ struct SweepCommand {
             return min(u, d)
         }
         /// Both sidebands (toward and away) rise ≥ 6 dB above the still-hand level.
-        var dopplerVisible: Bool? { minExcessDB.map { $0 >= SweepCommand.visibleThresholdDB } }
+        var dopplerVisible: Bool? {
+            minExcessDB.map { $0 >= SweepCommand.visibleThresholdDB && snrDB >= SweepCommand.minDopplerSNR }
+        }
+        /// Sidebands rose but there is no pilot to reflect: broadband noise during waving, not Doppler.
+        var noiseBurst: Bool { (minExcessDB ?? 0) >= SweepCommand.visibleThresholdDB && snrDB < SweepCommand.minDopplerSNR }
+        var dopplerMark: String {
+            guard let visible = dopplerVisible, let ex = minExcessDB else { return "–" }
+            if visible { return ex >= SweepCommand.strongThresholdDB ? "y" : "y (weak)" }
+            return noiseBurst ? "n*" : "n"
+        }
     }
 
     static let visibleThresholdDB: Float = 6
+    static let strongThresholdDB: Float = 10
+    static let minDopplerSNR: Float = 10
     static let inaudibleFromHz = 18_500.0
     static let goodSNR: Float = 20
 
@@ -58,7 +70,7 @@ struct SweepCommand {
         let speakers = try options.overrides.speakers()
         let spk = Environment.speakerState(speakers)
 
-        let engine = try ProbeEngine(amplitudeDB: options.amplitudeDB, micRate: options.micRate, overrides: options.overrides)
+        let engine = try ProbeEngine(amplitudeDB: options.amplitudeDB, micRate: options.micRate, speakerRate: options.speakerRate, overrides: options.overrides)
         defer { engine.shutdown() }
 
         let nyquistLimit = engine.sampleRate / 2 - Double(32 + 2) * engine.analyzer.binWidth
@@ -114,7 +126,7 @@ struct SweepCommand {
         engine.setTones([])
         if engine.heardDigitalSilence {
             throw ProbeError("""
-                The microphone delivered pure digital silence. Microphone access is probably denied for \
+                The microphone delivered (near-)silence. Microphone access is probably denied for \
                 this terminal app: System Settings → Privacy & Security → Microphone.
                 """)
         }
@@ -148,7 +160,7 @@ struct SweepCommand {
                 rows[i].waveLower = Stats.percentile(down, 0.95)
                 let r = rows[i]
                 print("  " + pad("\(Int(r.requestedHz))", 7) + pad(fmt(r.excessUpDB ?? 0, sign: true), 11)
-                      + pad(fmt(r.excessDownDB ?? 0, sign: true), 10) + "  " + ((r.dopplerVisible ?? false) ? "y" : "n"))
+                      + pad(fmt(r.excessDownDB ?? 0, sign: true), 10) + "  " + r.dopplerMark)
             }
             engine.setTones([])
             print(Term.bold("  STOP — you can rest your hand."))
@@ -231,18 +243,30 @@ struct Report {
             details.append("No second usable frequency ≥ 1 kHz away from the first: two-pilot swipes (M3) look doubtful.")
         }
 
-        // Amplitude headroom: only meaningful when the sideband floor is noise-limited.
-        if let minEx = primary.minExcessDB, primary.skirtDB - primary.noiseDB < 3 {
-            let headroom = Double(minEx) - 12
-            if headroom > 3 {
-                details.append("Amplitude: Doppler has ~\(Int(headroom)) dB of headroom over a 12 dB target, so ≈ \(fmt(options.amplitudeDB - headroom, 0)) dBFS "
-                               + "should still work at this volume (we used \(fmt(options.amplitudeDB, 0)) dBFS). M2 calibrates this properly.")
+        // Amplitude. If the still-hand sideband floor is (nearly) the pilot-off noise floor, Doppler visibility
+        // scales 1:1 with pilot level. If it is well above, the floor rises with the pilot and level barely matters.
+        if let minEx = primary.minExcessDB {
+            let target: Float = 12
+            let delta = Double(minEx - target)
+            if primary.skirtDB - primary.noiseDB < 6 {
+                if delta <= -1 {
+                    let needed = min(-3, options.amplitudeDB - delta)
+                    details.append("Amplitude: noise-limited and ~\(Int((-delta).rounded())) dB short of a \(Int(target)) dB Doppler margin. "
+                                   + "Raise the pilot to ≈ \(fmt(needed, 0)) dBFS (we used \(fmt(options.amplitudeDB, 0))) or the speaker volume by the same amount.")
+                } else if delta >= 3 {
+                    details.append("Amplitude: ~\(Int(delta)) dB of spare Doppler margin; ≈ \(fmt(options.amplitudeDB - delta, 0)) dBFS should still work at this volume.")
+                } else {
+                    details.append("Amplitude: \(fmt(options.amplitudeDB, 0)) dBFS at this volume is about right; no headroom to lower it.")
+                }
             } else {
-                details.append("Amplitude: little headroom; keep \(fmt(options.amplitudeDB, 0)) dBFS or louder at this volume.")
+                details.append("Amplitude: the sideband floor is set by the speaker/mic chain (it rises with the pilot), so level changes "
+                               + "barely affect Doppler visibility; Doppler margin \(fmt(minEx, sign: true)) dB.")
             }
-        } else if primary.minExcessDB != nil {
-            details.append("Amplitude: the sideband floor is above the noise floor (speaker/mic distortion), so lowering the pilot "
-                           + "won't cost much Doppler visibility; try ≈ \(fmt(options.amplitudeDB - 10, 0)) dBFS in M1.")
+        }
+        if rows.contains(where: \.noiseBurst) {
+            let hz = rows.filter(\.noiseBurst).map { "\(Int($0.requestedHz))" }.joined(separator: ", ")
+            details.append("n* at \(hz) Hz: sideband energy rose with no usable pilot there, i.e. broadband noise while waving (clothing, rings…). "
+                           + "The detector must reject this with a reference band away from the pilot.")
         }
 
         let audible = rows.filter { $0.band.pilotHz < SweepCommand.inaudibleFromHz && $0.snrDB >= SweepCommand.goodSNR }
@@ -262,14 +286,14 @@ struct Report {
     func terminalTable() -> String {
         var lines = [Term.bold(
             pad("Freq Hz", 8) + pad("Pilot Hz", 10) + pad("Level dB", 10) + pad("Noise dB", 10) + pad("SNR dB", 8)
-                + pad("Skirt dB", 10) + pad("▲ dB", 8) + pad("▼ dB", 8) + pad("Doppler", 9))]
+                + pad("Skirt dB", 10) + pad("▲ dB", 8) + pad("▼ dB", 8) + pad("Doppler", 10))]
         for r in rows {
             lines.append(
                 pad("\(Int(r.requestedHz))", 8) + pad(fmt(r.band.pilotHz, 1), 10) + pad(fmt(r.levelDB), 10)
                     + pad(fmt(r.noiseDB), 10) + pad(fmt(r.snrDB), 8) + pad(fmt(r.skirtDB), 10)
                     + pad(r.excessUpDB.map { fmt($0, sign: true) } ?? "–", 8)
                     + pad(r.excessDownDB.map { fmt($0, sign: true) } ?? "–", 8)
-                    + pad(r.dopplerVisible.map { $0 ? "y" : "n" } ?? "–", 9))
+                    + pad(r.dopplerMark, 10))
         }
         return lines.joined(separator: "\n")
     }
@@ -301,7 +325,7 @@ struct Report {
         for r in rows {
             md += "| \(Int(r.requestedHz)) | \(fmt(r.band.pilotHz, 1)) | \(fmt(r.levelDB)) | \(fmt(r.noiseDB)) | \(fmt(r.snrDB)) | \(fmt(r.skirtDB)) | "
             md += "\(r.excessUpDB.map { fmt($0, sign: true) } ?? "–") | \(r.excessDownDB.map { fmt($0, sign: true) } ?? "–") | "
-            md += "\(r.dopplerVisible.map { $0 ? "y" : "n" } ?? "–") |\n"
+            md += "\(r.dopplerMark) |\n"
         }
         let rec = recommendation()
         md += "\n## Verdict\n\n**\(rec.verdict)**\n\n" + rec.details.map { "- \($0)" }.joined(separator: "\n") + "\n"
@@ -314,7 +338,8 @@ struct Report {
             - **SNR** — Level − Noise.
             - **Skirt** — median per-bin power across the Doppler band with the pilot **on**, hands still. If it is well above Noise, the speaker/mic chain adds distortion or phase noise around the pilot that Doppler has to beat.
             - **▲ / ▼** — 95th-percentile sideband energy while waving vs the still-hand mean, above (toward) and below (away) the pilot.
-            - **Doppler visible** — y when both ▲ and ▼ are ≥ +\(Int(SweepCommand.visibleThresholdDB)) dB.
+            - **Doppler visible** — y when both ▲ and ▼ are ≥ +\(Int(SweepCommand.strongThresholdDB)) dB, "y (weak)" for +\(Int(SweepCommand.visibleThresholdDB))…\(Int(SweepCommand.strongThresholdDB)) dB. \
+            Requires SNR ≥ \(Int(SweepCommand.minDopplerSNR)) dB; `n*` = sidebands rose without a usable pilot (broadband noise during waving, not Doppler).
 
             """
         return md
