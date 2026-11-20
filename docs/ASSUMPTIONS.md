@@ -73,3 +73,27 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
 
 - The CLI's microphone permission belongs to the terminal app that runs it. Wave.app gets its own (M2).
 - Posting media keys needs Accessibility (M2).
+
+## App (M2–M5)
+
+- `App/Wave.xcodeproj` is hand-written (objectVersion 77, file-system-synchronized `Wave/` folder) and links
+  the local package's `WaveCore` and `WaveUI` products. Menu bar only (`LSUIElement`), not sandboxed,
+  hardened runtime with `com.apple.security.device.audio-input`.
+- Bundle ID `local.wave.Wave`: a placeholder to change before distributing.
+- Signing: `make` uses an Apple Development / Developer ID identity from the keychain when present (stable
+  identity → TCC keeps Microphone/Accessibility grants across rebuilds); otherwise ad-hoc.
+  `scripts/release.sh` archives universal, signs with Developer ID, drops `get-task-allow`, notarizes, staples.
+- Actions: media keys are NX_SYSDEFINED events posted with CGEvent (needs Accessibility); keyboard
+  shortcuts likewise; Shortcuts run via `/usr/bin/shortcuts run NAME`.
+- "Media playing" = another process has Core Audio output running (process objects, macOS 14.2+), excluding
+  Wave. Some apps keep idle streams open (Signal Desktop), hence the per-app ignore list. Grace period
+  after playback stops or a gesture fires (default 3 min) so a push can resume what it paused.
+- Lid state: IOPMrootDomain `AppleClamshellState`, polled every 2 s. Screen lock: distributed
+  `com.apple.screenIsLocked/Unlocked`. Display/system sleep and session switches: NSWorkspace.
+- One engine at a time: calibration, sample recording and the debug window take it over (the debug window
+  runs its own engine while the app's is stopped; gestures still trigger actions).
+- Swipes (experimental): left 18.75 kHz / right 19.5 kHz, each Doppler band narrowed to ±30 bins, reference
+  bands on the outer sides, push-vs-swipe by reversal lag (default 45 ms, learned by calibration together
+  with the direction).
+- Calibration thresholds: start = max(noise + 2, 0.45 × typical peak) within 4…14 dB; peak = max(start + 1,
+  noise + 3, min(lowest − 2, 0.75 × typical)); durations from the examples; sensitivity then shifts ±6 dB.

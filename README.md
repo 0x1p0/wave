@@ -1,87 +1,148 @@
 # Wave
 
-Hand gestures in the air over a MacBook, detected with ultrasonic sonar. The built-in speakers play an
-inaudible pilot tone, the built-in mics hear its reflection off your hand, and the Doppler shift tells
-which way your hand moved. No camera, no extra hardware.
+Hand gestures in the air over a MacBook, detected with ultrasonic sonar. The built-in speakers play a
+tone too high to hear, the built-in microphones pick up its echo off your hand, and the Doppler shift
+shows how your hand moved. No camera, no extra hardware.
 
-**Status: M1 (detection engine).** M0 found it feasible in a narrow 18.75–19.25 kHz window (19 kHz pilot at
-−8 dBFS), see [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The menu bar app arrives in M2.
+You're eating, you push your hand toward the screen and back, and YouTube pauses.
+
+| Gesture | Default action |
+|---|---|
+| **Push**: hand toward the screen and straight back (~0.5 s) | Play/Pause |
+| **Swipe left / right** (experimental, two tones) | Previous / Next track (or J / L to seek ±10 s on YouTube) |
+
+Each gesture can be mapped to a media key, a keyboard shortcut, or a Shortcuts-app shortcut.
 
 ## Privacy
 
-Audio is analysed in memory and never leaves the Mac. Nothing is written to disk except **opt-in debug
-recordings** (`make record`, or Record in the debug window), saved to
-`~/Library/Application Support/Wave/Recordings` as `.caf` + `.json`. The probe writes only tables of numbers.
+- Audio is analysed **in memory, on your Mac**. It never leaves the Mac and is **never saved to disk**,
+  except debug recordings you start yourself (debug window → Record), saved to
+  `~/Library/Application Support/Wave/Recordings`.
+- The **orange microphone dot** in the menu bar is on whenever Wave is listening: that's Wave hearing its
+  own tone. With "Only listen while media is playing" (the default), it's off the rest of the time.
+- Labeled training samples (Settings → Calibration) contain feature numbers only, never audio.
 
-## Build
+## Install and first run
 
-Requires Xcode 16+ (Swift 6) on macOS 14+. Apple frameworks only.
-
-```sh
-make probe     # xcodebuild → build/DerivedData/Build/Products/Release/wave-probe
-make test      # unit tests (xcodebuild test)
-```
-
-`swift build` / `swift test` also work.
-
-## M0 probe
+Requires a MacBook (built-in speakers and microphones) with macOS 14 or later, and Xcode to build.
 
 ```sh
-make devices   # machine + audio hardware report (plays/records nothing)
-make speakers  # set the built-in speakers' own volume to 50 % (VOL=75 make speakers), default output unchanged
-make sweep     # 17–22.5 kHz sweep → docs/m0-sweep-48k.md
-make sweep96   # same with mic + speakers temporarily at 96 kHz → docs/m0-sweep-96k.md
-make confirm   # 18.5–19.5 kHz at −8 dBFS, still + waving → docs/m0-sweep-19k-loud.md
-make live      # live spectrogram around 19 kHz at −8 dBFS (FREQ=18750 AMP=-12 make live)
+make install     # builds Wave.app, copies it to /Applications and starts it
 ```
 
-The pilot always goes to the **built-in speakers** and is captured from the **built-in mic**, whatever
-the system default devices are (AirPods, wired headphones, …). The speakers must not be muted, and their
-own volume (separate from your headphones' volume) should be ~50 % for the probe: `make speakers` sets that
-directly through Core Audio without switching your output away from your headphones.
+Wave lives in the menu bar (hand icon). The first launch walks you through:
 
-Run it from a terminal app that has microphone access (System Settings → Privacy & Security →
-Microphone). The orange mic indicator is on while the probe runs.
+1. **Microphone** access (to hear the echo).
+2. **MacBook speakers**: the tone always plays on the built-in speakers, even when you listen on
+   AirPods or headphones. Your volume keys only change the device you're listening on, so the speakers
+   keep their own volume. Wave compensates, and pauses with *Volume too low for Wave* when it can't
+   (when the speakers are more than ~6 dB quieter than at half volume). The onboarding and menu have a
+   "Set to 50 %" button.
+3. **Hearing test**: if you can hear the tone, Wave moves to a higher one.
+4. **Accessibility**, so Wave can press Play/Pause for you (System Settings → Privacy & Security →
+   Accessibility → Wave).
 
-## M1 detection
+Then play a video and push your hand toward the screen and back. A small confirmation appears at the
+top of the screen.
+
+**Calibrate** (menu → Calibrate…) to tune the thresholds to your room and hand: a few seconds of
+stillness, then 5 pushes (and 5 swipes each way if swipes are on).
+
+## When Wave pauses itself
+
+Wave stops listening (and playing its tone) when:
+- you typed or used the trackpad in the last 0.8 s (that gesture is ignored),
+- the MacBook speakers are muted or too quiet,
+- the screen is locked, the display or Mac is asleep, or the lid is closed,
+- nothing is playing (with *Only listen while media is playing*), plus a grace period (default 3 min) so
+  a push can resume what a push paused. If an app keeps an audio stream open while idle (Signal Desktop
+  does), choose **Ignore** next to it in Settings → General.
+
+## Troubleshooting
+
+- **Nothing happens on a push.** Check the menu status. "Waiting for media to play" means nothing is
+  playing; "Volume too low for Wave" means the MacBook speakers are too quiet. Open
+  **Debug window…** to see the spectrogram and every detection with the reason it was rejected.
+- **Play/Pause goes to the wrong app.** Media keys go to the system's "Now Playing" app, the one you
+  played or paused most recently.
+- **"Wave needs Accessibility"** after rebuilding: if Wave was ad-hoc signed (no developer certificate),
+  macOS treats each build as a new app. Remove Wave from the Accessibility list and add it again. `make`
+  signs with your Apple Development certificate automatically when you have one, which avoids this.
+- **I can hear a faint tone.** Settings → Sound → Run hearing test, or pick a higher tone there.
+
+## How it works
+
+```
+built-in speakers ── 19 kHz tone ──► hand ──► echo, Doppler-shifted ──► built-in mic
+                                                                           │
+       AUHAL capture (raw, no voice processing) → ring buffer → 4096-pt FFT every 10.7 ms
+       → energy just above / below the tone vs. a still-hand baseline, Doppler speed, reference band
+       → push detector: strong "toward" then "away" within 0.2–0.75 s → action
+```
+
+- **M0** measured this MacBook Air M4's speaker→mic response: usable only around 18.75–19.25 kHz (it falls
+  off a cliff above ~19.5 kHz; 96 kHz sampling doesn't help). See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md).
+- The tone's *acoustic* level is held constant: −8 dBFS at 50 % speaker volume, adjusted digitally as the
+  speakers' own volume changes.
+- **Swipes** use one tone per speaker (left 18.75 kHz, right 19.5 kHz). A hand crossing the laptop
+  passes the left and right echo paths at different times; the lag between the two Doppler reversals
+  separates swipes from pushes and gives the direction. This is experimental on a 13" MacBook Air (the
+  speakers are close together), so calibrate after turning it on.
+- Rejected gestures: recent keyboard/trackpad input (IOHIDSystem `HIDIdleTime`, no permission needed),
+  broadband noise (a reference band where hand Doppler can't reach), one-way motion, too slow or fast,
+  too weak.
+- Power: about 2 % of one core while listening (FFT, detection, tone), nothing while idle. `make cpu`
+  measures the running app.
+
+## Building and developing
+
+Swift 6, Apple frameworks only. `App/Wave.xcodeproj` (the app) uses the Swift package at the repository
+root (`WaveCore`: audio, DSP, detection; `WaveUI`: debug views).
 
 ```sh
-make debug     # debug window: live spectrogram, feature traces, event log with confidence
-make detect    # same detector in the terminal (SENS=0.7 make detect)
-make record    # detect + save raw mic audio for replay (LABEL=push make record)
-make replay FILE=path/to/wave-….caf   # rerun the detector on a recording (SENS=0.6 to compare)
-make demo      # synthetic recording (no waving needed), replayed in the terminal and the window
+make app         # build Wave.app (xcodebuild)
+make run         # build and launch without installing
+make test        # unit tests (synthetic Doppler gestures, swipe geometry, calibration, record/replay, …)
+make cpu         # CPU use of the running app
 ```
 
-`wave-probe replay FILE --csv out.csv` dumps per-frame features; `wave-probe config > my.json` prints the
-detector settings, which `--config my.json` reads back, so tuning is repeatable on the same audio.
+Tools for measuring and tuning (run them from Terminal.app, which needs microphone access):
 
-**How a push is detected** (per pilot, every 10.7 ms):
+```sh
+make devices     # audio hardware report
+make sweep       # M0 frequency sweep (17–22.5 kHz)
+make debug       # standalone debug window: spectrogram, traces, event log
+make detect      # live detection in the terminal
+make record      # detection + raw audio recording for replay (LABEL=push make record)
+make replay FILE=~/Library/Application\ Support/Wave/Recordings/wave-….caf
+make demo        # synthetic recording with pushes, noise, typing (no waving needed)
+```
 
-- *Features*: energy just above the pilot (hand moving toward the screen) and just below it (moving away),
-  each in dB over an adaptive still-hand baseline; a reference band 470–700 Hz from the pilot where hand
-  Doppler can't reach; the Doppler-centroid speed; reflection strength.
-- *Push*: a toward phase (≥ 8 dB, ≥ 3 dB more than the other side, centroid ≥ +0.25 m/s), then within 0.25 s
-  an away phase with the same rules mirrored; 0.2–0.75 s in total; both peaks ≥ 10 dB. Sensitivity shifts
-  every dB threshold by up to ±6 dB.
-- *Rejected* (shown in the log, never acted on): keyboard/trackpad input within 0.8 s (IOHIDSystem
-  `HIDIdleTime`, no permission needed), broadband noise (reference band ≥ 6 dB), too slow (one-way motion,
-  people walking by), too fast, too weak, no return movement. Slow drift never leaves the pilot's own bins.
-- *Volume*: the pilot's acoustic level is held constant: −8 dBFS at a speaker gain of −18.6 dB (50 %), more
-  or less digital level as the speakers' own volume changes, up to −2 dBFS. Below ≈ −24.6 dB, or when muted,
-  Wave pauses with "Volume too low for Wave" / "Built-in speakers are muted".
+`wave-probe config > my.json` prints the detector settings; `wave-probe replay FILE --config my.json --csv
+features.csv` reruns the detector on the same audio and dumps per-frame features.
 
-## Layout
+### Distribution (Developer ID + notarization)
+
+Needs a paid Apple Developer account with a **Developer ID Application** certificate. Before shipping,
+change the bundle identifier (`local.wave.Wave` in the project) to one you own.
+
+```sh
+xcrun notarytool store-credentials wave-notary --apple-id YOU@EXAMPLE.COM --team-id TEAMID   # once
+scripts/release.sh --team TEAMID          # archive (universal) → sign → notarize → staple → zip
+```
+
+### Layout
 
 ```
-Sources/WaveRT/        C11 atomics + signal flag (Swift's Atomic needs macOS 15)
-Sources/WaveCore/      Audio (Core Audio devices, AUHAL pilot player + mic capture, ring buffer)
-                       DSP (vDSP FFT, frame slicer, pilot band metrics, synthetic signals)
-                       Detection (features, push detector), Engine (pipeline, live engine, volume policy)
-                       Recording (CAF + JSON sidecar, replay), System (HIDIdleTime, machine info)
-Sources/WaveUI/        SwiftUI debug views (spectrogram, traces, event log)
-Sources/wave-debug/    M1 debug window app (run from Terminal)
-Sources/wave-probe/    CLI: devices / speakers / sweep / live (M0), detect / replay / config / synth (M1)
-Tests/WaveCoreTests/   Swift Testing unit tests (synthetic Doppler gestures, record/replay, …)
-docs/                  Assumptions and probe reports
+App/                   Xcode project, app sources (menu bar, settings, onboarding, calibration, HUD)
+Sources/WaveCore/      Audio (Core Audio devices, AUHAL tone + capture), DSP (vDSP FFT), Detection
+                       (features, push detector, two-tone fusion), Engine, Recording (CAF + replay),
+                       Calibration, System (input idle, lid, media activity)
+Sources/WaveUI/        Debug views (spectrogram, traces, event log)
+Sources/wave-probe/    CLI: devices, speakers, sweep, live, detect, replay, config, synth, media
+Sources/wave-debug/    Standalone debug window
+Sources/WaveRT/        C11 atomics for the real-time audio path
+Tests/                 Swift Testing unit tests
+docs/                  M0 measurements, assumptions and decisions
+scripts/               release (notarization), icon, CPU measurement
 ```
