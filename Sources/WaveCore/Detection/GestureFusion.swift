@@ -39,6 +39,9 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     public var pairTimeout: Double = 0.35
     /// Flip left/right (set by calibration if the speaker/mic geometry reverses the lag sign).
     public var invertSwipeDirection = false
+    /// A push seen by only one tone still counts if both its phases peaked at least this high (dB).
+    /// One tone per speaker is weaker than one tone on both, so requiring both lost real pushes.
+    public var oneSidedPushDB: Float = 12
 
     public init() {}
 
@@ -49,9 +52,10 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         if let v = try c.decodeIfPresent(Double.self, forKey: .maxPairGap) { maxPairGap = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .pairTimeout) { pairTimeout = v }
         if let v = try c.decodeIfPresent(Bool.self, forKey: .invertSwipeDirection) { invertSwipeDirection = v }
+        if let v = try c.decodeIfPresent(Float.self, forKey: .oneSidedPushDB) { oneSidedPushDB = v }
     }
 
-    private enum CodingKeys: String, CodingKey { case minSwipeLag, maxPairGap, pairTimeout, invertSwipeDirection }
+    private enum CodingKeys: String, CodingKey { case minSwipeLag, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB }
 }
 
 /// Combines per-speaker push-shaped events (stereo layout) into push / swipe-left / swipe-right.
@@ -119,7 +123,11 @@ public final class GestureFusion {
 
     private func oneSided(_ e: GestureEvent) -> GestureEvent {
         var r = e
-        r.outcome = .oneSided
+        if min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB {
+            r.kind = .push  // strong and clearly push-shaped: don't lose it because the other tone was weak
+        } else {
+            r.outcome = .oneSided
+        }
         return r
     }
 }

@@ -5,11 +5,11 @@ import Testing
 /// Two pilots (left speaker 18.75 kHz, right 19.5 kHz) with a geometric hand model.
 @Suite("Stereo: push vs swipes")
 struct SwipeTests {
-    static let layout = PilotLayout.stereo(left: 18_750, right: 19_500)
+    static let layout = PilotLayout.stereo(left: 18_750, right: 19_250)
 
     func run(_ hand: @escaping (Double) -> SIMD3<Double>, duration: Double = 3.5, fusion: FusionConfig = FusionConfig()) -> [GestureEvent] {
         let scene = SyntheticScene(duration: duration)
-        let x = scene.renderStereo(left: 18_750, right: 19_500, hand: hand)
+        let x = scene.renderStereo(left: 18_750, right: 19_250, hand: hand)
         let pipeline = GesturePipeline(sampleRate: SyntheticScene.sampleRate, channels: 1, layout: Self.layout, fusion: fusion)
         var events: [GestureEvent] = []
         var i = 0
@@ -60,16 +60,21 @@ struct SwipeTests {
 
     @Test func fusionPairsAndTimesOut() {
         let fusion = GestureFusion()
-        func e(_ rev: Double) -> GestureEvent {
+        func e(_ rev: Double, peak: Float = 15) -> GestureEvent {
             GestureEvent(kind: .push, outcome: .accepted, pilotHz: 1, start: rev - 0.2, end: rev + 0.2, confidence: 0.8,
-                         towardPeakDB: 15, awayPeakDB: 15, towardPeakVelocity: 0.8, awayPeakVelocity: -0.8,
+                         towardPeakDB: peak, awayPeakDB: peak, towardPeakVelocity: 0.8, awayPeakVelocity: -0.8,
                          maxReferenceDB: 0, reversal: rev)
         }
         #expect(fusion.add(e(1.00), band: 0).isEmpty)
         let swipe = fusion.add(e(1.12), band: 1)
         #expect(swipe.first?.kind == .swipeRight)
+        // A strong push seen by one tone only still counts…
         #expect(fusion.add(e(2.0), band: 1).isEmpty)
         #expect(fusion.flush(now: 2.3).isEmpty)
-        #expect(fusion.flush(now: 2.6).first?.outcome == .oneSided)
+        let strong = fusion.flush(now: 2.6)
+        #expect(strong.first?.isAccepted == true && strong.first?.kind == .push)
+        // …a weak one doesn't.
+        #expect(fusion.add(e(4.0, peak: 8), band: 0).isEmpty)
+        #expect(fusion.flush(now: 4.6).first?.outcome == .oneSided)
     }
 }

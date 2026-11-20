@@ -54,6 +54,8 @@ public final class GesturePipeline {
     private let trackers: [BasebandTracker]
     private let interaction = InteractionDetector()
     private var mono: [Float] = []
+    /// Index of the lowest-frequency pilot (the strongest echo on this hardware).
+    private var strongestBand: Int { bands.indices.min { bands[$0].pilotHz < bands[$1].pilotHz } ?? 0 }
     private var spectrum = [Float]()
     private var lastAcceptedEnd = -Double.infinity
 
@@ -163,7 +165,9 @@ public final class GesturePipeline {
                 }
             }
             if layout.isStereo { fusion.flush(now: t).forEach { accept($0, into: &out) } }
-            let combined = Self.combine(features)
+            // Hold / slide / grab follow the strongest (lowest-frequency) tone only: averaging in a weaker
+            // tone's phase just adds noise.
+            let combined = features[strongestBand]
             let (controls, interactionEvents) = interaction.process(combined, pilotHz: bands[0].pilotHz)
             out.controls += controls
             interactionEvents.forEach { accept($0, into: &out) }

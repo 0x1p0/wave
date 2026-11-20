@@ -19,7 +19,7 @@ struct WavePreferences: Codable, Equatable {
     /// Swipe mode (experimental): two tones, one per speaker.
     var swipesEnabled = false
     var leftPilotHz = 18_750.0
-    var rightPilotHz = 19_500.0
+    var rightPilotHz = 19_250.0
     /// Pilot level at the reference speaker volume (50 %).
     var levelDBFS = -8.0
 
@@ -52,6 +52,8 @@ struct WavePreferences: Codable, Equatable {
         swipesEnabled = v(.swipesEnabled, d.swipesEnabled)
         leftPilotHz = v(.leftPilotHz, d.leftPilotHz)
         rightPilotHz = v(.rightPilotHz, d.rightPilotHz)
+        // 19.5 kHz from one speaker proved too weak; move the old default pair to 18.75 / 19.25 kHz.
+        if rightPilotHz == 19_500 && leftPilotHz == 18_750 { rightPilotHz = 19_250 }
         levelDBFS = v(.levelDBFS, d.levelDBFS)
         mapping = v(.mapping, d.mapping)
         dialEnabled = v(.dialEnabled, d.dialEnabled)

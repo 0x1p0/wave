@@ -19,7 +19,7 @@ struct DetectCommand {
     let options: Options
 
     /// Engine-queue-only printer state (the engine calls back on one serial queue).
-    private final class Printer: @unchecked Sendable {
+    final class Printer: @unchecked Sendable {
         var lastStatus: EngineStatus?
         var lastMeter = 0.0
         var saved: URL?

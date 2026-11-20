@@ -20,8 +20,7 @@ final class HearingTest {
         self.model = model
         if model.prefs.swipesEnabled {
             let l = model.prefs.leftPilotHz, r = model.prefs.rightPilotHz
-            candidates = [.stereo(left: l, right: r), .stereo(left: max(l, 19_000), right: max(r, 19_500)),
-                          .stereo(left: 19_250, right: 19_750)]
+            candidates = [.stereo(left: l, right: r), .stereo(left: max(l, 19_000), right: max(r, 19_250) + 250)]
         } else {
             let f = model.prefs.pushPilotHz
             candidates = [f, 19_000, 19_250, 19_500].filter { $0 >= f }.reduce(into: [Double]()) { if !$0.contains($1) { $0.append($1) } }

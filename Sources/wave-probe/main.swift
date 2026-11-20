@@ -52,6 +52,10 @@ let usage = """
       wave-probe config
           Prints the default detector settings as JSON (edit, then pass with --config).
 
+      wave-probe capture
+          Guided ~1 minute recording of your real gestures (still, push, hold & slide, fist, swipes),
+          saved to ~/Library/Application Support/Wave/Captures for tuning.
+
       wave-probe synth [--hold] OUT.caf
           Writes a synthetic 14 s demo recording (pushes, a weak push, noise burst, one-way motion,
           a push right after typing) for trying replay and the debug window without waving.
@@ -179,6 +183,10 @@ do {
         try writer.finish()
         print("Wrote \(url.path) (\(hold ? "approach + hold, slide closer, pull away, approach + grab" : SyntheticScene.demoScript))")
         exitCode = 0
+
+    case "capture":
+        // Guided recording of real gestures for tuning (quits/reopens the Wave app around it).
+        exitCode = await ensureMicrophoneAccess() ? await CaptureCommand().run() : 3
 
     case "media":
         // Which other processes are playing audio (for "only listen while media is playing").
