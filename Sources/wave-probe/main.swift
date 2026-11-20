@@ -3,7 +3,7 @@ import WaveCore
 import WaveRT
 
 let usage = """
-    wave-probe — M0 feasibility probe for Wave (ultrasonic Doppler gestures)
+    wave-probe — probe and detector tools for Wave (ultrasonic Doppler gestures)
 
     USAGE
       wave-probe devices
@@ -37,7 +37,26 @@ let usage = """
           --rate HZ         temporarily switch the mic to this sample rate
           --ignore-volume   run even if the speakers are muted
 
-    Debug (both commands): --output-uid UID / --input-uid UID use other devices (UIDs from `devices`),
+      wave-probe detect [options]                                         (M1)
+          Live push detection in the terminal.
+          --freq HZ         pilot (19000)
+          --amplitude DBFS  pilot level at the reference speaker volume (-8)
+          --sensitivity X   0 strict … 1 sensitive (0.5)
+          --config PATH     detector settings JSON (see `wave-probe config`)
+          --duration SEC    stop automatically
+          --record          also save raw mic audio (.caf + .json) for replay [--label L] [--dir PATH]
+
+      wave-probe replay FILE.caf [--sensitivity X] [--freq HZ] [--config PATH] [--csv PATH] [--accepted-only]
+          Runs a recording through the detector; --csv dumps per-frame features.
+
+      wave-probe config
+          Prints the default detector settings as JSON (edit, then pass with --config).
+
+      wave-probe synth OUT.caf
+          Writes a synthetic 14 s demo recording (pushes, a weak push, noise burst, one-way motion,
+          a push right after typing) for trying replay and the debug window without waving.
+
+    Debug (sweep/live): --output-uid UID / --input-uid UID use other devices (UIDs from `devices`),
     e.g. a loopback device to test the pipeline silently.
 
     The pilot always plays on the MacBook's built-in speakers and is captured from the built-in mic,
@@ -48,8 +67,9 @@ struct Arguments {
     var command: String?
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
+    var positional: [String] = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -68,7 +88,7 @@ struct Arguments {
             } else if command == nil {
                 command = a
             } else {
-                throw ProbeError("unexpected argument '\(a)'")
+                positional.append(a)
             }
             i += 1
         }
@@ -93,6 +113,12 @@ struct Arguments {
     }
 }
 
+func loadConfig(_ path: String?) throws -> DetectorConfig? {
+    guard let path else { return nil }
+    let data = try Data(contentsOf: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+    return try JSONDecoder().decode(DetectorConfig.self, from: data)
+}
+
 func ensureMicrophoneAccess() async -> Bool {
     if await MicCapture.requestPermission() { return true }
     print("""
@@ -112,6 +138,51 @@ do {
     case "devices":
         try args.checkKnown([])
         exitCode = DevicesCommand.run()
+
+    case "detect":
+        try args.checkKnown(["freq", "amplitude", "sensitivity", "config", "duration", "record", "label", "dir"])
+        var o = DetectCommand.Options()
+        if let v = try args.double("freq") { o.frequency = v }
+        if let v = try args.double("amplitude") { o.amplitudeDB = min(-2, v) }
+        if let v = try args.double("sensitivity") { o.sensitivity = min(1, max(0, v)) }
+        o.duration = try args.double("duration")
+        o.record = args.flags.contains("record")
+        o.label = args.values["label"]?.last
+        if let d = args.values["dir"]?.last { o.directory = URL(fileURLWithPath: (d as NSString).expandingTildeInPath) }
+        o.config = try loadConfig(args.values["config"]?.last)
+        exitCode = await ensureMicrophoneAccess() ? DetectCommand(options: o).run() : 3
+
+    case "replay":
+        try args.checkKnown(["sensitivity", "freq", "config", "csv", "accepted-only"])
+        guard let file = args.positional.first else { throw ProbeError("replay needs a .caf file") }
+        var o = ReplayCommand.Options(file: file)
+        o.sensitivity = try args.double("sensitivity")
+        o.frequency = try args.double("freq")
+        o.csv = args.values["csv"]?.last
+        o.config = try loadConfig(args.values["config"]?.last)
+        o.showRejected = !args.flags.contains("accepted-only")
+        exitCode = try ReplayCommand(options: o).run()
+
+    case "synth":
+        guard let out = args.positional.first else { throw ProbeError("synth needs an output .caf path") }
+        let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+        let (samples, inputs) = SyntheticScene.demo()
+        var meta = RecordingMetadata(
+            sampleRate: SyntheticScene.sampleRate, channels: 1, pilots: [19_000], micDevice: "synthetic", machine: "synthetic")
+        meta.label = "demo"
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let writer = try RecordingWriter(url: url, metadata: meta, streamStart: 0)
+        try writer.append([samples])
+        inputs.forEach { writer.noteInput(at: $0) }
+        try writer.finish()
+        print("Wrote \(url.path) (\(SyntheticScene.demoScript))")
+        exitCode = 0
+
+    case "config":
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        print(String(decoding: try encoder.encode(DetectorConfig()), as: UTF8.self))
+        exitCode = 0
 
     case "speakers":
         try args.checkKnown(["volume", "mute", "output-uid"])

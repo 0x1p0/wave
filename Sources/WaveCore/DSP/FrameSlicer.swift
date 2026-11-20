@@ -12,6 +12,9 @@ public final class FrameSlicer {
     private var pending = 0
     private var filled = 0
     public private(set) var framesEmitted = 0
+    /// Total samples (per channel) consumed so far; not reset by `reset()`. During `onWindow` it equals
+    /// the index just past the window's last sample, i.e. the window's end on the stream timeline.
+    public private(set) var samplesConsumed = 0
 
     public init(channels: Int, fftSize: Int = 4096, hop: Int = 512) {
         precondition(fftSize % hop == 0)
@@ -47,6 +50,7 @@ public final class FrameSlicer {
             }
             pending += take
             offset += take
+            samplesConsumed += take
             if pending == hop {
                 for ch in 0..<channels {
                     // Slide history left by one hop, appending the pending block.

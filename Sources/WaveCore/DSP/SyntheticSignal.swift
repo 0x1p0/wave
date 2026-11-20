@@ -28,6 +28,22 @@ public enum SyntheticSignal {
         return out
     }
 
+    /// Velocity profile of a push: half-sine toward the laptop, a short stop, half-sine back.
+    /// Positive = toward. Returns 0 outside the gesture.
+    public static func pushVelocity(
+        start: Double, toward: Double = 0.25, pause: Double = 0.05, away: Double = 0.25, peak: Double = 0.8
+    ) -> @Sendable (Double) -> Double {
+        { t in
+            let x = t - start
+            if x < 0 { return 0 }
+            if x < toward { return peak * sin(Double.pi * x / toward) }
+            let y = x - toward - pause
+            if y < 0 { return 0 }
+            if y < away { return -peak * sin(Double.pi * y / away) }
+            return 0
+        }
+    }
+
     /// Gaussian white noise with the given RMS, from a fixed seed (reproducible).
     public static func noise(rms: Float, count: Int, seed: UInt64 = 0x5EED) -> [Float] {
         var state = seed &+ 0x9E37_79B9_7F4A_7C15

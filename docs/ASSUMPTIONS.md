@@ -36,7 +36,21 @@ Recorded at M0 (2026-11-20). Revisit when a milestone proves one wrong.
 - Pilot: pure sine with 50 ms raised-cosine fades on every start, stop and frequency change.
 - Pilot frequencies are snapped to FFT bin centres (fs/N) so a steady pilot doesn't leak into its sidebands.
 
-## Detection (M0 definitions, refined in M1)
+## Detection (M1)
+
+- Features per pilot per frame: toward/away sideband energy (±3…32 bins) in dB over a per-bin baseline;
+  reference bands at ±40…60 bins (470–700 Hz) for broadband-noise rejection; Doppler centroid velocity from
+  bins > 3× baseline; reflection strength vs the pilot.
+- Baseline: fast average during 0.6 s warm-up, then τ = 1.5 s while quiet, τ = 20 s otherwise; reset when the
+  pilot level changes by > 1 dB or the pilot resumes.
+- Push thresholds (sensitivity 0.5): on 8 dB, off 4 dB, peak 10 dB, dominance 3 dB, |v| ≥ 0.25 m/s,
+  0.2–0.75 s total, ≤ 0.25 s reversal gap, input guard 0.8 s, reference reject 6 dB, refractory 0.4 s.
+  A real still scene (person at the laptop) measured toward/away p99 ≈ +5.5 dB, max +6.4 dB.
+- Two pilots (M3) each get a detector; accepted pushes within 0.3 s are merged.
+- Debug recordings: float32 CAF + JSON sidecar (pilots, level, speaker gain, input times, live events,
+  detector settings, label). Sidecar decoding tolerates missing/new fields.
+
+## Detection (M0 definitions)
 
 - Hann window, FFT 4096, hop 512 @ 48 kHz → 11.72 Hz bins, 10.7 ms hops, 85 ms windows.
 - Doppler band per pilot: ±3…32 bins (±35–375 Hz ≈ 0.3–3.2 m/s at 20 kHz). ±2 bins are the pilot's own.
