@@ -48,8 +48,8 @@ struct MenuView: View {
     private var swipeModes: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                if model.prefs.smartMode, let app = model.frontApp {
-                    SectionTitle("Swipes in \(app.name)")
+                if model.prefs.smartMode, let place = model.smartPlace {
+                    SectionTitle("Swipes in \(place)")
                     Text(model.smartPreset(for: .swipeLeft) == nil ? "your gestures" : "smart")
                         .font(.system(size: 9.5, weight: .semibold))
                         .padding(.horizontal, 5).padding(.vertical, 1)

@@ -34,6 +34,8 @@ struct WavePreferences: Codable, Equatable {
     var smartMode = true
     /// Your choice per app: bundle ID → mode id (a `GesturePreset` id, or "default" for your own gestures).
     var appModes: [String: String] = [:]
+    /// Your choice per website (recognised from the browser's window title): site id → mode id.
+    var siteModes: [String: String] = [:]
     /// What the dial adjusts; holding still switches to the next one.
     var dialTargets: [DialTarget] = [.volume, .brightness]
     /// Level change per push / pull while hovering (%).
@@ -92,6 +94,7 @@ struct WavePreferences: Codable, Equatable {
         if v(.dialVersion, 1) < 2 { dialEnabled = false }  // switched off once; it can be turned back on
         smartMode = v(.smartMode, d.smartMode)
         appModes = v(.appModes, d.appModes)
+        siteModes = v(.siteModes, d.siteModes)
         dialTargets = v(.dialTargets, d.dialTargets)
         dialStep = v(.dialStep, d.dialStep)
         grabEnabled = v(.grabEnabled, d.grabEnabled)
@@ -105,7 +108,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
-        case dialEnabled, dialVersion, smartMode, appModes, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
+        case dialEnabled, dialVersion, smartMode, appModes, siteModes, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
     }
 
     // MARK: Persistence
@@ -284,6 +287,15 @@ enum SmartModes {
         // Reading: pages
         "com.apple.Preview": "reading", "com.apple.iBooksX": "reading", "com.readdle.PDFExpert-Mac": "reading",
     ]
+
+    /// Websites smart mode recognises in a browser (from the window title) and their default mode.
+    static let sites: [(id: String, name: String, titleContains: String, mode: String)] = [
+        ("youtube", "YouTube", "YouTube", "youtube"),
+    ]
+
+    static func site(inTitle title: String) -> (id: String, name: String, mode: String)? {
+        sites.first { title.localizedCaseInsensitiveContains($0.titleContains) }.map { ($0.id, $0.name, $0.mode) }
+    }
 
     /// The mode id for an app: your choice, else the built-in one, else nil (your own gestures).
     static func mode(for bundleID: String, overrides: [String: String]) -> String? {

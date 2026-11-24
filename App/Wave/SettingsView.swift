@@ -551,6 +551,36 @@ struct AppsPage: View {
                         }
                         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         Button { addApp() } label: { Label("Add an app…", systemImage: "plus") }
+                        Text("Websites in your browser").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                        VStack(spacing: 0) {
+                            ForEach(SmartModes.sites, id: \.id) { site in
+                                HStack(spacing: 12) {
+                                    GestureBadge(symbol: "play.rectangle.fill", tint: .red, size: 28)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(site.name).font(.system(size: 13))
+                                        Text("Recognised from the browser's window title").font(.system(size: 11)).foregroundStyle(.secondary)
+                                    }
+                                    if model.frontSite?.id == site.id {
+                                        Text("watching now").font(.system(size: 10, weight: .semibold))
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(Color.green.opacity(0.18), in: Capsule()).foregroundStyle(.green)
+                                    }
+                                    Spacer()
+                                    Picker("", selection: Binding(
+                                        get: { model.prefs.siteModes[site.id] ?? site.mode },
+                                        set: { model.prefs.siteModes[site.id] = $0 })) {
+                                        Text("Like the browser").tag("default")
+                                        Divider()
+                                        ForEach(GesturePreset.all) { Label($0.title, systemImage: $0.symbol).tag($0.id) }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 180)
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                            }
+                        }
+                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
             }

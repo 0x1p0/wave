@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Foundation
 import Observation
@@ -127,6 +128,7 @@ final class AppModel {
         let mic = MicCapture.permission
         if mic != micPermission { micPermission = mic; reevaluate() }
         if tick % 2 == 0 { pollMedia() }
+        refreshFrontSite()  // so the menu shows "YouTube in Brave" while you watch
         if tick % 5 == 0 {
             let s = SMAppService.mainApp.status
             if s != loginItemStatus { loginItemStatus = s }
@@ -316,7 +318,7 @@ final class AppModel {
         if recentEvents.count > 50 { recentEvents.removeLast() }
         let acts = e.isAccepted && (mode == .normal || mode == .debugWindow)
         DetectionLog.shared.write(e.summary + (acts ? "  → \(effectiveAction(for: e.kind).title)" : "")
-                                  + (acts && smartPreset(for: e.kind) != nil ? " (smart, \(frontApp?.name ?? ""))" : "")
+                                  + (acts && smartPreset(for: e.kind) != nil ? " (smart, \(smartPlace ?? ""))" : "")
                                   + (mode == .normal ? "" : "  [\(mode)]"))
         guard acts else { return }
         perform(e.kind)
@@ -325,13 +327,15 @@ final class AppModel {
     // MARK: Smart mode: swipes follow the app you're in
 
     /// The app you're using: the last one in front that isn't Wave.
-    private(set) var frontApp: (id: String, name: String)?
+    private(set) var frontApp: (id: String, name: String, pid: pid_t)?
+    /// A website smart mode recognised in that app's front window (a browser showing YouTube).
+    private(set) var frontSite: (id: String, name: String, mode: String)?
     @ObservationIgnored private var frontAppObserver: NSObjectProtocol?
 
     private func followFrontApp() {
         func take(_ app: NSRunningApplication?) {
             guard let app, let id = app.bundleIdentifier, id != Bundle.main.bundleIdentifier else { return }
-            frontApp = (id, app.localizedName ?? id)
+            frontApp = (id, app.localizedName ?? id, app.processIdentifier)
         }
         take(NSWorkspace.shared.frontmostApplication)
         frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -340,17 +344,55 @@ final class AppModel {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated {
                 guard let self, let app, let id = app.bundleIdentifier, id != Bundle.main.bundleIdentifier else { return }
-                self.frontApp = (id, app.localizedName ?? id)
+                self.frontApp = (id, app.localizedName ?? id, app.processIdentifier)
+                self.refreshFrontSite()
             }
         }
     }
 
-    /// The swipe mode smart mode picks for the app in front (nil: your own gestures).
+    /// Looks at the front browser window's title for a site smart mode knows (YouTube). Needs Accessibility,
+    /// which Wave already has for sending keys; reads only the title.
+    func refreshFrontSite() {
+        guard prefs.smartMode, let app = frontApp,
+              SmartModes.mode(for: app.id, overrides: [:]) == "browser" || prefs.appModes[app.id] == "browser",
+              let title = Self.focusedWindowTitle(pid: app.pid) else {
+            if frontSite != nil { frontSite = nil }
+            return
+        }
+        let site = SmartModes.site(inTitle: title)
+        if site?.id != frontSite?.id {
+            frontSite = site
+            DetectionLog.shared.write("SITE " + (site.map { "\($0.name) in \(app.name)" } ?? "none in \(app.name)"))
+        }
+    }
+
+    private static func focusedWindowTitle(pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        var title: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &title) == .success else { return nil }
+        return title as? String
+    }
+
+    /// The swipe mode smart mode picks for the app in front (nil: your own gestures). In a browser showing a
+    /// site it knows (YouTube), the site's mode wins.
     func smartPreset(for kind: GestureEvent.Kind? = nil) -> GesturePreset? {
         if let kind, kind != .swipeLeft && kind != .swipeRight { return nil }  // smart mode only changes swipes
         guard prefs.smartMode, let app = frontApp,
               let id = SmartModes.mode(for: app.id, overrides: prefs.appModes) else { return nil }
+        if id == "browser", let site = frontSite {
+            let siteMode = prefs.siteModes[site.id] ?? site.mode
+            if siteMode != "default", let preset = GesturePreset.named(siteMode) { return preset }
+        }
         return GesturePreset.named(id)
+    }
+
+    /// Where smart mode is acting: "Brave Browser" or "YouTube in Brave Browser".
+    var smartPlace: String? {
+        guard let app = frontApp else { return nil }
+        return frontSite.map { "\($0.name) in \(app.name)" } ?? app.name
     }
 
     /// What a gesture does right now, in the app you're in.
@@ -360,7 +402,9 @@ final class AppModel {
 
     /// Sets the swipe mode for the app in front (smart mode) or for everywhere (otherwise).
     func chooseSwipeMode(_ preset: GesturePreset) {
-        if prefs.smartMode, let app = frontApp {
+        if prefs.smartMode, let site = frontSite {
+            prefs.siteModes[site.id] = preset.id
+        } else if prefs.smartMode, let app = frontApp {
             prefs.appModes[app.id] = preset.id
         } else {
             preset.apply(to: &prefs.mapping)
@@ -373,6 +417,7 @@ final class AppModel {
     }
 
     func perform(_ kind: GestureEvent.Kind) {
+        if kind == .swipeLeft || kind == .swipeRight { refreshFrontSite() }
         let action = effectiveAction(for: kind)
         lastGestureDate = Date()
         lastGesture = (kind, action, Date())
@@ -382,7 +427,7 @@ final class AppModel {
         switch ActionPerformer.perform(action) {
         case .done:
             if prefs.showHUD, action != .none {
-                let place = smartPreset(for: kind) != nil ? " · \(frontApp?.name ?? "")" : ""
+                let place = smartPreset(for: kind) != nil ? " · \(smartPlace ?? "")" : ""
                 hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title + place, tint: kind.tint)
             }
         case .level(let level):
@@ -519,7 +564,7 @@ final class AppModel {
     func prepareForSnapshot() {
         lastGesture = (.swipeLeft, prefs.mapping.swipeLeft, Date().addingTimeInterval(-2))
         if let brave = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.brave.Browser") {
-            frontApp = ("com.brave.Browser", FileManager.default.displayName(atPath: brave.path).replacingOccurrences(of: ".app", with: ""))
+            frontApp = ("com.brave.Browser", FileManager.default.displayName(atPath: brave.path).replacingOccurrences(of: ".app", with: ""), 0)
         }
     }
 

@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Regular AppKit windows hosting SwiftUI views. (A menu bar app has no window scenes of its own to
 /// open from AppKit callbacks, so it manages these itself.)
+///
+/// While any of them is open, Wave behaves like a normal app — in ⌘-Tab and the Dock, so its window is easy
+/// to get back to — and goes back to living only in the menu bar when the last one closes.
 @MainActor
 final class WindowManager: NSObject, NSWindowDelegate {
     enum Kind: String { case settings, onboarding, calibration, debug, samples, tutorial }
@@ -14,6 +17,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     func show<V: View>(_ kind: Kind, title: String, size: NSSize, resizable: Bool = false,
                        onClose: (() -> Void)? = nil, @ViewBuilder content: () -> V) {
+        becomeRegularApp()
         if let existing = windows[kind] {
             NSApp.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
@@ -42,5 +46,19 @@ final class WindowManager: NSObject, NSWindowDelegate {
         windows[kind] = nil
         let callback = onClose.removeValue(forKey: kind)
         callback?()
+        if windows.isEmpty {
+            // Back to the menu bar only (after the window has finished closing).
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if self.windows.isEmpty { NSApp.setActivationPolicy(.accessory) }
+                }
+            }
+        }
+    }
+
+    private func becomeRegularApp() {
+        guard NSApp.activationPolicy() != .regular else { return }
+        NSApp.setActivationPolicy(.regular)
+        if let icon = NSImage(named: "AppIcon") { NSApp.applicationIconImage = icon }
     }
 }
