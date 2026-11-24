@@ -65,6 +65,9 @@ public final class GesturePipeline {
     private let audible: AudibleLevel
     private var lastAcceptedEnd = -Double.infinity
     private var claimedUntil = -Double.infinity
+    /// Each tone's recent toward/away (last 1.5 s), to find a tone's turn-around when only the other tone
+    /// produced an event.
+    private var history: [[(time: Double, toward: Float, away: Float)]] = []
     /// Pulls wait briefly: if a push overlaps them (its toward phase was the pull's return), the push wins.
     private var pendingPull: (event: GestureEvent, release: Double)?
 
@@ -120,8 +123,33 @@ public final class GesturePipeline {
         pullDetector = PushDetector(pilotHz: strongestHz, config: detector, mirrored: true)
         trackers = bands.map { BasebandTracker(pilotHz: $0.pilotHz, sampleRate: sampleRate) }
         fusion.config = fusionConfig
+        history = Array(repeating: [], count: bands.count)
         interaction.config = interactionConfig
         interaction.detector = detector
+        fusion.reversalFinder = { [unowned self] band, t in self.turnaround(band: band, around: t) }
+    }
+
+    /// When tone `band`'s echo last turned from toward to away within 0.3 s of `t0` (the crossing nearest to it),
+    /// using looser thresholds than a full gesture: both sides above the off level and 2 dB apart.
+    func turnaround(band: Int, around t0: Double) -> Double? {
+        guard history.indices.contains(band) else { return nil }
+        let off = detectorConfig.effectiveOffDB
+        var lastToward: Double?
+        var peakToward: Float = 0
+        var best: Double?
+        for f in history[band] where abs(f.time - t0) <= 0.3 {
+            if f.toward >= off && f.toward - f.away >= 2 {
+                lastToward = f.time
+                peakToward = max(peakToward, f.toward)
+            } else if let lt = lastToward, f.away >= off && f.away - f.toward >= 2 {
+                if f.time - lt <= 0.12 && peakToward >= off + 2 && (best.map { abs(f.time - t0) < abs($0 - t0) } ?? true) {
+                    best = f.time
+                }
+                lastToward = nil
+                peakToward = 0
+            }
+        }
+        return best
     }
 
     /// Keyboard/trackpad input happened at stream time `t`. Feed in time order.
@@ -139,6 +167,7 @@ public final class GesturePipeline {
         pendingPull = nil
         claimedUntil = -Double.infinity
         fusion.reset()
+        history = Array(repeating: [], count: bands.count)
         trackers.forEach { $0.reset() }
         interaction.reset()
         audible.reset()
@@ -175,6 +204,8 @@ public final class GesturePipeline {
                     f.basebandVelocity = bb.velocity
                     f.audibleDB = audibleDB
                     features.append(f)
+                    history[i].append((t, f.towardDB, f.awayDB))
+                    if let first = history[i].first, t - first.time > 1.5 { history[i].removeFirst() }
                     guard let event = detectors[i].process(f) else { continue }
                     if layout.isStereo {
                         fusion.add(event, band: i).forEach { accept($0, into: &out) }
@@ -187,7 +218,7 @@ public final class GesturePipeline {
             // Hover and grab follow the strongest (lowest-frequency) tone only: averaging in a weaker tone
             // just adds noise. Pulls come from the same tone.
             let strongest = features[strongestBand]
-            if let pull = pullDetector.process(strongest) {
+            if let pull = pullDetector.process(strongest), interaction.config.pullEnabled || interaction.isEngaged {
                 if pull.isAccepted {
                     pendingPull = (pull, t + detectorConfig.maxReversalGap + detectorConfig.endHold + 0.05)
                 } else {
@@ -229,6 +260,10 @@ public final class GesturePipeline {
     /// decides which one the hand meant. While hovering, gestures turn into controls instead.
     private func accept(_ event: GestureEvent, into out: inout PipelineOutput) {
         if event.start < claimedUntil - 0.02 { return }
+        if event.kind == .swipeLeft || event.kind == .swipeRight, event.isAccepted, let pending = pendingPull,
+           event.start <= pending.event.end + 0.05 {
+            pendingPull = nil  // the swipe's own toward/away looked like a pull on one tone
+        }
         if event.kind == .push, event.isAccepted, let pending = pendingPull, event.start <= pending.event.end + 0.05 {
             pendingPull = nil
             if Self.pullBeatsPush(pending.event, event) {

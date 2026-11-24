@@ -104,6 +104,23 @@ struct SwipeTests {
         #expect(fusion.flush(now: 5.6).first?.isAccepted == true)
     }
 
+    @Test func swipeSeenByOneToneUsesTheOtherTonesTurnaround() {
+        // Only the left tone reported (weakly); the right tone's echo turned around 40 ms earlier: right → left.
+        let fusion = GestureFusion()
+        fusion.reversalFinder = { band, t in band == 1 ? t - 0.04 : t }
+        let left = GestureEvent(kind: .push, outcome: .weak, pilotHz: 1, start: 0.8, end: 1.2, confidence: 0.3,
+                                towardPeakDB: 12, awayPeakDB: 9, towardPeakVelocity: 0.45, awayPeakVelocity: -0.5,
+                                maxReferenceDB: 0, reversal: 1.0)
+        #expect(fusion.add(left, band: 0).isEmpty)
+        let out = fusion.flush(now: 2.0)
+        #expect(out.count == 1 && out[0].kind == .swipeLeft && out[0].isAccepted)
+        // No turn-around on the other tone: still nothing.
+        let lonely = GestureFusion()
+        lonely.reversalFinder = { _, _ in nil }
+        #expect(lonely.add(left, band: 0).isEmpty)
+        #expect(lonely.flush(now: 2.0).allSatisfy { !$0.isAccepted })
+    }
+
     @Test func swipeHalvesThatWereTooFastStillPair() {
         // Sideways motion gives each tone a short blip that alone is "too fast"; together they're a swipe.
         let fusion = GestureFusion()

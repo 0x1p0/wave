@@ -56,6 +56,9 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// A swipe whose per-tone halves were each "too fast" or "too weak" still counts if one tone's echo
     /// peaked at least this high (sideways motion gives short, weaker Doppler on each tone).
     public var swipeMinPeakDB: Float = 12
+    /// A swipe only one tone reported still counts if that tone peaked this high and the other tone's echo shows
+    /// it turning around (toward → away) a swipe-like time earlier or later. Weak swipes often reach only one tone.
+    public var oneToneSwipeDB: Float = 10
 
     public init() {}
 
@@ -73,6 +76,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         oneSidedPushDB = v(.oneSidedPushDB, oneSidedPushDB)
         swipeMinPeakDB = v(.swipeMinPeakDB, swipeMinPeakDB)
         minPushSpeed = v(.minPushSpeed, minPushSpeed)
+        oneToneSwipeDB = v(.oneToneSwipeDB, oneToneSwipeDB)
         // Settings saved before lagCenter existed measured the lag around 0 with a wider cut-off (45 ms),
         // which turned right→left swipes into pushes. Use the measured defaults instead.
         if !c.contains(.lagCenter) {
@@ -83,7 +87,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
-        case minPushSpeed
+        case minPushSpeed, oneToneSwipeDB
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.
@@ -103,6 +107,9 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 public final class GestureFusion {
     public var config: FusionConfig
     private var pending: [Int: GestureEvent] = [:]
+    /// When the given tone's echo last turned from toward to away near a time (looser than a full event), if it
+    /// did. Lets a swipe that only one tone reported still get its direction.
+    public var reversalFinder: ((_ band: Int, _ around: Double) -> Double?)?
 
     public init(config: FusionConfig = FusionConfig()) { self.config = config }
 
@@ -126,10 +133,10 @@ public final class GestureFusion {
             pending[other] = nil
             let (left, right) = band == 0 ? (event, partner) : (partner, event)
             if let combined = combine(left: left, right: right) { return [combined] }
-            return [left, right].map(unpaired)
+            return [unpaired(left, band: 0), unpaired(right, band: 1)]
         }
         var out: [GestureEvent] = []
-        if let stale = pending[band] { out.append(unpaired(stale)) }
+        if let stale = pending[band] { out.append(unpaired(stale, band: band)) }
         pending[band] = event
         return out
     }
@@ -139,7 +146,7 @@ public final class GestureFusion {
         var out: [GestureEvent] = []
         for (band, e) in pending where now - e.end > config.pairTimeout {
             pending[band] = nil
-            out.append(unpaired(e))
+            out.append(unpaired(e, band: band))
         }
         return out.sorted { $0.start < $1.start }
     }
@@ -178,7 +185,26 @@ public final class GestureFusion {
         return e
     }
 
-    private func unpaired(_ e: GestureEvent) -> GestureEvent {
+    /// Only this tone produced an event: look at the other tone's echo for its turn-around. Both turn-arounds
+    /// are measured the same (looser) way so the lag isn't biased by one tone's stricter event timing.
+    private func oneToneSwipe(_ e: GestureEvent, band: Int) -> GestureEvent? {
+        guard let finder = reversalFinder, max(e.towardPeakDB, e.awayPeakDB) >= config.oneToneSwipeDB,
+              let theirs = finder(1 - band, reversal(e)) else { return nil }
+        let mine = finder(band, reversal(e)) ?? reversal(e)
+        let lag = band == 0 ? theirs - mine : mine - theirs
+        guard abs(lag) <= config.maxPairGap else { return nil }
+        let kind = config.classify(lag: lag, speed: e.towardPeakVelocity)
+        guard kind != .push else { return nil }
+        var r = e
+        r.kind = kind
+        r.lag = lag
+        r.outcome = .accepted
+        r.confidence = max(0.2, min(0.6, e.confidence))
+        return r
+    }
+
+    private func unpaired(_ e: GestureEvent, band: Int) -> GestureEvent {
+        if let swipe = oneToneSwipe(e, band: band) { return swipe }
         guard e.isAccepted else { return e }
         var r = e
         if min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB && e.towardPeakVelocity >= config.lateralSpeed {

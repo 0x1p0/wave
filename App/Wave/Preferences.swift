@@ -106,6 +106,7 @@ struct WavePreferences: Codable, Equatable {
         s.interaction.dialTargets = max(1, dialTargets.count)
         s.interaction.dialStep = dialStep / 100
         s.interaction.grabEnabled = grabEnabled
+        s.interaction.pullEnabled = mapping.pull != .none
         return s
     }
 }

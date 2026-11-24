@@ -95,6 +95,14 @@ struct InteractionTests {
         #expect(accepted(r.events, .push).isEmpty)
     }
 
+    @Test func pullIsIgnoredWhenItDoesNothing() {
+        // Pull mapped to nothing: the motion isn't claimed as a pull (so it can't swallow a swipe).
+        var config = InteractionConfig()
+        config.pullEnabled = false
+        let r = run([palm { t in 0.22 + Self.bump(t, start: 2.0, depth: 0.15, duration: 0.55) }], interaction: config)
+        #expect(accepted(r.events, .pull).isEmpty)
+    }
+
     @Test func repeatedPushesAreNotPulls() {
         let r = run([palm { t in
             0.40 - Self.bump(t, start: 1.0, depth: 0.18, duration: 0.5) - Self.bump(t, start: 1.9, depth: 0.18, duration: 0.5)

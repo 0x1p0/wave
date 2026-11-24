@@ -448,7 +448,8 @@ final class AppModel {
         if prefs.dialEnabled { lessons.append(.hover) }
         if prefs.grabEnabled { lessons.append(.grab) }
         if prefs.swipesEnabled { lessons.append(.swipe) }
-        let settings = prefs.engineSettings
+        var settings = prefs.engineSettings
+        settings.interaction.pullEnabled = true  // the Pull lesson needs pulls even when Pull does nothing
         let tutorial = TutorialModel(lessons: lessons, grabSnapDB: settings.interaction.grabSnapDB,
                                      onThresholdDB: settings.detector.effectiveOnDB,
                                      dialTargetNames: prefs.dialTargets.map(\.title))
