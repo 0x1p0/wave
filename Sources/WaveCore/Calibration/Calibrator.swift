@@ -15,8 +15,9 @@ public struct CalibrationProfile: Codable, Sendable, Equatable {
     public var swipeRightLags: [Double] = []
     /// Hold/dial/grab thresholds (nil in profiles from before grab support).
     public var interaction: InteractionConfig?
+    /// Loudness of the user's fist "snaps" (dB over the broadband baseline).
     public var grabPeaksDB: [Float]?
-    /// Still-room micro-motion level (99.5th percentile).
+    /// Still-room micro-motion level (99.5th percentile; informational).
     public var microNoiseDB: Float?
 
     public init(layout: PilotLayout, detector: DetectorConfig, fusion: FusionConfig, noiseDB: Float) {
@@ -32,10 +33,10 @@ public struct CalibrationProfile: Codable, Sendable, Equatable {
         parts.append(String(format: "start ≥ %.1f dB, peak ≥ %.1f dB, %.2f–%.2f s",
                             detector.onThresholdDB, detector.minPeakDB, detector.minDuration, detector.maxDuration))
         if let g = grabPeaksDB, !g.isEmpty, let i = interaction {
-            parts.append(String(format: "grab ≥ %.1f dB (examples %.0f–%.0f)", i.grabMicroDB, g.min()!, g.max()!))
+            parts.append(String(format: "grab snap ≥ %.1f dB (examples %.0f–%.0f)", i.grabSnapDB, g.min()!, g.max()!))
         }
         if layout.isStereo {
-            parts.append(String(format: "swipe lag ≥ %.0f ms%@", fusion.minSwipeLag * 1000,
+            parts.append(String(format: "swipe lag ≥ %.0f ms from %+.0f ms%@", fusion.minSwipeLag * 1000, fusion.lagCenter * 1000,
                                 fusion.invertSwipeDirection ? ", direction flipped" : ""))
         }
         return parts.joined(separator: " · ")
@@ -53,15 +54,13 @@ public enum Calibrator {
         Stats.percentile(frames.flatMap { $0.bands.map(\.microDB) }, 0.995)
     }
 
-    /// Permissive grab settings for collecting examples (dial off so every burst is judged as a grab).
-    public static func collectionInteraction(microNoiseDB: Float) -> InteractionConfig {
+    /// Permissive grab settings for collecting examples (dial off; softer snaps count so the profile can set the line).
+    public static func collectionInteraction(microNoiseDB: Float = 0) -> InteractionConfig {
         var c = InteractionConfig()
         c.dialEnabled = false
         c.grabEnabled = true
-        c.grabMicroDB = max(8, microNoiseDB + 3)
-        c.grabRiseDB = 6
-        c.grabMaxDuration = 0.8
-        c.targetCycle = 6  // stay ready while the user gets ready to close the hand
+        c.grabSnapDB = 9
+        c.grabCooldown = 1.5
         return c
     }
 
@@ -122,19 +121,26 @@ public enum Calibrator {
         if layout.isStereo {
             // Fusion calls lag > 0 (left side first) "swipe right". If the user's right swipes came out
             // with smaller lags than their left swipes, the geometry is mirrored: flip.
+            // Where a straight push lands (the two output paths differ a little), then how far swipes go from it.
+            if pushLags.count >= 2 {
+                f.lagCenter = Double(Stats.median(pushLags.map(Float.init)))
+            } else if !leftLags.isEmpty && !rightLags.isEmpty {
+                f.lagCenter = (Double(Stats.median(leftLags.map(Float.init))) + Double(Stats.median(rightLags.map(Float.init)))) / 2
+            }
+            let c = f.lagCenter
             if !leftLags.isEmpty && !rightLags.isEmpty {
                 f.invertSwipeDirection = Stats.median(rightLags.map(Float.init)) < Stats.median(leftLags.map(Float.init))
             } else if !rightLags.isEmpty {
-                f.invertSwipeDirection = Stats.median(rightLags.map(Float.init)) < 0
+                f.invertSwipeDirection = Double(Stats.median(rightLags.map(Float.init))) < c
             } else if !leftLags.isEmpty {
-                f.invertSwipeDirection = Stats.median(leftLags.map(Float.init)) > 0
+                f.invertSwipeDirection = Double(Stats.median(leftLags.map(Float.init))) > c
             }
-            let pushMax = pushLags.map(abs).max()
-            let swipeMin = (leftLags + rightLags).map(abs).min()
+            let pushMax = pushLags.map { abs($0 - c) }.max()
+            let swipeMin = (leftLags + rightLags).map { abs($0 - c) }.min()
             if let p = pushMax, let s = swipeMin, s > p {
-                f.minSwipeLag = (p + s) / 2
+                f.minSwipeLag = max(0.015, (p + s) / 2)
             } else if let p = pushMax {
-                f.minSwipeLag = min(0.12, max(0.03, p + 0.02))
+                f.minSwipeLag = min(0.12, max(0.02, p + 0.015))
             }
         }
 
@@ -144,8 +150,7 @@ public enum Calibrator {
         let grabPeaks = grabs.compactMap(\.microPeakDB)
         if !grabPeaks.isEmpty {
             var i = InteractionConfig()
-            i.grabMicroDB = min(28, max(microNoise + 6, 0.7 * Stats.median(grabPeaks), 12))
-            i.grabRiseDB = min(i.grabRiseDB, max(5, 0.5 * (Stats.median(grabPeaks) - microNoise)))
+            i.grabSnapDB = min(16, max(10, referenceNoise + 6, 0.6 * Stats.median(grabPeaks)))
             profile.interaction = i
             profile.grabPeaksDB = grabPeaks
         }

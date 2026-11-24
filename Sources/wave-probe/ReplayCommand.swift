@@ -10,6 +10,7 @@ struct ReplayCommand {
         var frequency: Double?
         var csv: String?
         var config: DetectorConfig?
+        var noHover = false
         var showRejected = true
     }
 
@@ -44,13 +45,17 @@ struct ReplayCommand {
         }
         var controlLines: [String] = []
         var dial = 0.0
-        let result = Replay.run(recording, pilots: pilots, detector: detector) { out in
+        var interaction = InteractionConfig()
+        if options.noHover { interaction.dialEnabled = false }
+        let result = Replay.run(recording, pilots: pilots, detector: detector, interaction: interaction) { out in
             let t = out.frames.last?.time ?? 0
             for c in out.controls {
                 switch c {
                 case .ready(let i): dial = 0; controlLines.append(String(format: "%8.2f s  ✋ ready (target %d)", t, i))
                 case .targetChanged(let i): controlLines.append(String(format: "%8.2f s  ✋ target → %d", t, i))
-                case .adjust(_, let d): dial += d
+                case .adjust(_, let d):
+                    dial += d
+                    controlLines.append(String(format: "%8.2f s  %@", t, d > 0 ? "▲ up" : "▼ down"))
                 case .ended: controlLines.append(String(format: "%8.2f s  ✋ ended (dial %+.0f %%)", t, dial * 100))
                 }
             }

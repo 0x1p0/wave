@@ -177,11 +177,6 @@ struct CalibrationView: View {
                         .foregroundStyle(i < (session.counts[kind] ?? 0) ? .green : .secondary)
                 }
             }
-            if kind == .grab {
-                Label(session.handReady ? "✋ Ready — now close your hand into a fist" : "Raise your open hand and hold it still…",
-                      systemImage: session.handReady ? "hand.raised.fill" : "hand.raised")
-                    .foregroundStyle(session.handReady ? .green : .secondary)
-            }
             if !session.message.isEmpty { Text(session.message).foregroundStyle(.secondary) }
             if let n = session.noiseDB { Text(String(format: "Room noise: %.1f dB", n)).font(.caption).foregroundStyle(.secondary) }
             Button("Skip this gesture") { session.skip() }
@@ -231,7 +226,7 @@ struct CalibrationView: View {
         case .push: return "Toward the screen and straight back, about half a second each. Pause between pushes."
         case .swipeLeft: return "Move your hand from the right side of the laptop to the left, briskly. Pause between swipes."
         case .swipeRight: return "Move your hand from the left side of the laptop to the right, briskly. Pause between swipes."
-        case .grab: return "Raise your open hand about 20 cm in front of the screen and hold it still until it says Ready, then close it into a fist. Open it, lower your hand, and repeat."
+        case .grab: return "Hold your open hand up about 20 cm in front of the screen, then close it into a fist quickly and firmly — Wave hears your fingers snap onto your palm. Open it, wait a couple of seconds, and repeat."
         case .pull: return "Start close to the screen, move your hand away and straight back."
         }
     }

@@ -87,7 +87,7 @@ public struct TutorialView: View {
             Meter(title: "Toward", value: model.toward, color: .green)
             Meter(title: "Away", value: model.away, color: .orange)
             if model.lesson.kind == .grab || model.lesson.kind == .hover {
-                Meter(title: "Finger motion", value: model.micro, color: .pink, mark: model.grabLine)
+                Meter(title: "Snap", value: model.snap, color: .pink, mark: model.grabLine)
             }
             if model.lesson.kind == .swipe && model.lanes.count == 2 {
                 Meter(title: "Left tone", value: model.lanes[0], color: .cyan)
@@ -159,8 +159,8 @@ public struct LiveSonarView: View {
     public var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            let pos = model.handPosition, toward = model.toward, away = model.away, micro = model.micro
-            let phase = model.phase, text = model.phaseText, ready = phase == .ready || phase == .grabbing
+            let pos = model.handPosition, toward = model.toward, away = model.away, micro = model.snap
+            let phase = model.phase, text = model.phaseText, ready = phase == .ready
             Canvas { ctx, size in
                 let screenX: CGFloat = 70
                 let midY = size.height / 2

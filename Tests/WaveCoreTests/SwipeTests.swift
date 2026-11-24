@@ -34,14 +34,14 @@ struct SwipeTests {
         let accepted = run(SyntheticScene.pushPath(start: 1.5)).filter(\.isAccepted)
         try #require(accepted.count == 1)
         #expect(accepted[0].kind == .push)
-        #expect(abs(accepted[0].lag ?? 1) < FusionConfig().minSwipeLag)
+        #expect(abs((accepted[0].lag ?? 1) - FusionConfig().lagCenter) < FusionConfig().minSwipeLag)
     }
 
     @Test func swipeLeftToRightIsSwipeRight() throws {
         let accepted = run(SyntheticScene.swipePath(start: 1.5, speed: 1.0)).filter(\.isAccepted)
         try #require(accepted.count == 1)
         #expect(accepted[0].kind == .swipeRight)
-        #expect((accepted[0].lag ?? 0) > 0.045)
+        #expect((accepted[0].lag ?? 0) > FusionConfig().lagCenter + FusionConfig().minSwipeLag)
     }
 
     @Test func swipeRightToLeftIsSwipeLeft() throws {
@@ -76,5 +76,29 @@ struct SwipeTests {
         // …a weak one doesn't.
         #expect(fusion.add(e(4.0, peak: 8), band: 0).isEmpty)
         #expect(fusion.flush(now: 4.6).first?.outcome == .oneSided)
+    }
+
+    @Test func measuredLagsClassifyAsOnThisMac() {
+        // Real MacBook data: right→left swipes −32…−43 ms, left→right +53…+75 ms, pushes near +10 ms.
+        let c = FusionConfig()
+        for lag in [-0.043, -0.032, -0.021] { #expect(c.classify(lag: lag, speed: 0.5) == .swipeLeft) }
+        for lag in [0.053, 0.064, 0.075, 0.043] { #expect(c.classify(lag: lag, speed: 0.5) == .swipeRight) }
+        for lag in [-0.010, 0.0, 0.010, 0.025] { #expect(c.classify(lag: lag, speed: 1.0) == .push) }
+    }
+
+    @Test func swipeHalvesThatWereTooFastStillPair() {
+        // Sideways motion gives each tone a short blip that alone is "too fast"; together they're a swipe.
+        let fusion = GestureFusion()
+        func e(_ rev: Double, _ outcome: GestureEvent.Outcome) -> GestureEvent {
+            GestureEvent(kind: .push, outcome: outcome, pilotHz: 1, start: rev - 0.1, end: rev + 0.08, confidence: 0.3,
+                         towardPeakDB: 15, awayPeakDB: 14, towardPeakVelocity: 0.5, awayPeakVelocity: -0.6,
+                         maxReferenceDB: 0, reversal: rev)
+        }
+        #expect(fusion.add(e(1.00, .tooFast), band: 1).isEmpty)
+        let swipe = fusion.add(e(1.04, .tooFast), band: 0)
+        #expect(swipe.count == 1 && swipe[0].kind == .swipeLeft && swipe[0].isAccepted)
+        // Two rejected halves at the same moment are not a push.
+        #expect(fusion.add(e(3.00, .tooFast), band: 0).isEmpty)
+        #expect(fusion.add(e(3.01, .tooFast), band: 1).allSatisfy { !$0.isAccepted })
     }
 }

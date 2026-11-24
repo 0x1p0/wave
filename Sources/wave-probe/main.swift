@@ -46,7 +46,7 @@ let usage = """
           --duration SEC    stop automatically
           --record          also save raw mic audio (.caf + .json) for replay [--label L] [--dir PATH]
 
-      wave-probe replay FILE.caf [--sensitivity X] [--freq HZ] [--config PATH] [--csv PATH] [--accepted-only]
+      wave-probe replay FILE.caf [--sensitivity X] [--freq HZ] [--config PATH] [--csv PATH] [--accepted-only] [--no-hover]
           Runs a recording through the detector; --csv dumps per-frame features.
 
       wave-probe config
@@ -76,7 +76,7 @@ struct Arguments {
     var flags: Set<String> = []
     var positional: [String] = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "hold", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "no-hover", "hold", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -160,7 +160,7 @@ do {
         exitCode = await ensureMicrophoneAccess() ? DetectCommand(options: o).run() : 3
 
     case "replay":
-        try args.checkKnown(["sensitivity", "freq", "config", "csv", "accepted-only"])
+        try args.checkKnown(["sensitivity", "freq", "config", "csv", "accepted-only", "no-hover"])
         guard let file = args.positional.first else { throw ProbeError("replay needs a .caf file") }
         var o = ReplayCommand.Options(file: file)
         o.sensitivity = try args.double("sensitivity")
@@ -168,6 +168,7 @@ do {
         o.csv = args.values["csv"]?.last
         o.config = try loadConfig(args.values["config"]?.last)
         o.showRejected = !args.flags.contains("accepted-only")
+        o.noHover = args.flags.contains("no-hover")
         exitCode = try ReplayCommand(options: o).run()
 
     case "synth":

@@ -17,7 +17,7 @@ struct DemoView: View {
                     HStack(spacing: 16) {
                         Meter(title: "Toward", value: session.tutorial.toward, color: .green)
                         Meter(title: "Away", value: session.tutorial.away, color: .orange)
-                        Meter(title: "Finger motion", value: session.tutorial.micro, color: .pink, mark: session.tutorial.grabLine)
+                        Meter(title: "Snap", value: session.tutorial.snap, color: .pink, mark: session.tutorial.grabLine)
                         if session.tutorial.lanes.count == 2 {
                             Meter(title: "Left tone", value: session.tutorial.lanes[0], color: .cyan)
                             Meter(title: "Right tone", value: session.tutorial.lanes[1], color: .purple)

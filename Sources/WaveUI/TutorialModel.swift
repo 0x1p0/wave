@@ -42,11 +42,11 @@ public struct Lesson: Identifiable, Equatable, Sendable {
         case .push:
             return "Move your open hand toward the screen and straight back out, in about half a second, 10–30 cm in front of it. Outside practice this plays or pauses."
         case .pull:
-            return "Start with your hand fairly close to the screen. Move it away and straight back, in about half a second. It's the mirror of a push."
+            return "Start with your hand still, close to the screen (10–15 cm). Flick it AWAY toward you and straight back, as briskly as a push. Wave reads whichever way you moved first, so the away part has to be the quick one — a slow drift away followed by a quick return looks like a push."
         case .hover:
-            return "Bring your hand up, about 20 cm from the screen, and hold it still until ✋ appears. Then push to turn up and pull to turn down (10 % each). Hold still a bit longer to switch between volume and brightness. Move your hand away to finish."
+            return "Bring your hand up briskly, about 20 cm from the screen, and hold it still until ✋ appears (under a second). Then push to turn up and pull to turn down (10 % each). Hold still for 3 seconds to switch between volume and brightness. Move your hand away — or swipe — to finish."
         case .grab:
-            return "Bring your hand up and hold it until ✋ appears, then close it into a fist. Watch the finger-motion meter: it has to jump past the line. If it doesn't, this Mac can't see your fingers well enough — map your action to Pull instead."
+            return "Hold your open hand up in front of the screen, then close it into a fist quickly and firmly — fingers snapping onto your palm. Wave hears that snap: watch the Snap meter jump past the line. Opening your hand again doesn't count, so take a second between fists."
         case .swipe:
             return "Swipe your hand across the laptop, 15–30 cm in front of the screen, briskly. The two lanes (left and right tone) should light up one after the other."
         }
@@ -74,7 +74,8 @@ public final class TutorialModel {
     public private(set) var handPosition: Double = 0.2
     public private(set) var toward: Double = 0
     public private(set) var away: Double = 0
-    public private(set) var micro: Double = 0
+    /// Broadband "snap" level (a fist closing), 0…1.
+    public private(set) var snap: Double = 0
     public private(set) var lanes: [Double] = []
     public private(set) var phase: InteractionDetector.Phase = .idle
     public private(set) var grabLine: Double
@@ -94,12 +95,12 @@ public final class TutorialModel {
     @ObservationIgnored private var lastFrameTime: Double?
     @ObservationIgnored private let onThresholdDB: Float
 
-    public init(lessons: [Lesson.Kind], grabMicroDB: Float = InteractionConfig().grabMicroDB,
+    public init(lessons: [Lesson.Kind], grabSnapDB: Float = InteractionConfig().grabSnapDB,
                 onThresholdDB: Float = DetectorConfig().effectiveOnDB, dialTargetNames: [String] = ["Volume", "Brightness"]) {
         self.lessons = lessons.map { Lesson(kind: $0) }
         self.onThresholdDB = onThresholdDB
         self.dialTargetNames = dialTargetNames
-        grabLine = Double(grabMicroDB) / 30
+        grabLine = Double(grabSnapDB) / 30
         startLesson()
     }
 
@@ -145,7 +146,7 @@ public final class TutorialModel {
         handPosition = min(1, max(-1, handPosition))
         toward += (min(1, max(0, Double(f.towardDB) / 25)) - toward) * 0.5
         away += (min(1, max(0, Double(f.awayDB) / 25)) - away) * 0.5
-        micro += (min(1, max(0, Double(f.microDB) / 30)) - micro) * 0.4
+        snap = max(min(1, max(0, Double(f.referenceDB) / 30)), snap * 0.85)  // fast attack, slow fade: a snap is ~80 ms
         let newLanes = frame.bands.map { min(1, max(0, Double(max($0.towardDB, $0.awayDB)) / 25)) }
         if lanes.count != newLanes.count { lanes = newLanes } else {
             for i in lanes.indices { lanes[i] += (newLanes[i] - lanes[i]) * 0.5 }
@@ -163,7 +164,6 @@ public final class TutorialModel {
         case .ready(let t):
             practiceTarget = t
             if lesson.kind == .hover { hoverSteps.insert("ready"); say("✋ Ready — now push to turn up, pull to turn down", good: true) }
-            if lesson.kind == .grab { say("✋ Ready — now close your hand into a fist", good: true) }
         case .targetChanged(let t):
             practiceTarget = t
             if lesson.kind == .hover { say("Switched to \(name(t)) — holding still switches", good: true) }
@@ -265,7 +265,6 @@ public final class TutorialModel {
         case .approaching: return "Hand coming toward the screen"
         case .holding: return "Holding still… ✋ in a moment"
         case .ready: return "✋ Ready"
-        case .grabbing: return "Fingers moving…"
         case .cooldown: return "Done"
         }
     }

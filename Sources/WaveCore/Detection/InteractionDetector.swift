@@ -1,7 +1,7 @@
 import Foundation
 
-/// Hover controls (volume / brightness) and grab. Built on what reliably shows up on real MacBooks: fast
-/// Doppler motion (pushes and pulls). Slow sliding turned out to sit too close to the noise to track.
+/// Hover controls (volume / brightness) and grab, built on what reliably shows up on real MacBooks: fast Doppler
+/// motion (pushes and pulls) and, for grab, the short sharp sound of fingers closing onto the palm.
 public struct InteractionConfig: Sendable, Codable, Equatable {
     public var dialEnabled = true
     public var grabEnabled = true
@@ -9,21 +9,24 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var dialTargets = 2
 
     /// After bringing the hand up, no Doppler motion for this long = "holding" → ready ✋.
-    public var holdDelay = 0.5
+    public var holdDelay = 0.7
+    /// The arrival must be a real move: toward Doppler at least this many dB above the detector's minimum peak,
+    /// lasting at least `approachMinDuration`. Tiny twitches while sitting still used to switch hover on and
+    /// swallow the next push.
+    public var approachMarginDB: Float = 0
+    public var approachMinDuration = 0.05
     /// While ready, push = +step, pull = −step (fraction of the full range).
     public var dialStep: Double = 0.1
     /// Holding still this long switches to the next target; after the last one, the interaction ends.
-    public var targetCycle = 2.0
+    public var targetCycle = 3.0
 
-    /// Grab (experimental): a burst of micro-motion (fingers curling) at least this strong…
-    public var grabMicroDB: Float = 18
-    /// …and this far above the hand's own recent level (tremor and breathing already reach ~14 dB)…
-    public var grabRiseDB: Float = 10
-    /// …that fades (by `grabFadeDB`, for `grabFadeFrames`) within this time.
-    public var grabMinDuration = 0.08
-    public var grabMaxDuration = 0.7
-    public var grabFadeDB: Float = 6
-    public var grabFadeFrames = 8
+    /// Grab: closing the hand makes a short "snap" (fingers meeting the palm) that lights up the whole
+    /// ultrasonic band — measured at +12…+30 dB for ~40–90 ms. It must be at least this loud…
+    public var grabSnapDB: Float = 12
+    /// …and this short (a longer broadband rise is rustling or a bump, not a fist).
+    public var grabMaxDuration = 0.15
+    /// Opening the hand again snaps too: ignore snaps for this long after a grab (and 0.8 s after the last one).
+    public var grabCooldown = 1.8
 
     public init() {}
 
@@ -33,15 +36,15 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         func v<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { (try? c.decodeIfPresent(T.self, forKey: k)) ?? d }
         dialEnabled = v(.dialEnabled, dialEnabled); grabEnabled = v(.grabEnabled, grabEnabled)
         dialTargets = v(.dialTargets, dialTargets); holdDelay = v(.holdDelay, holdDelay)
+        approachMarginDB = v(.approachMarginDB, approachMarginDB); approachMinDuration = v(.approachMinDuration, approachMinDuration)
         dialStep = v(.dialStep, dialStep); targetCycle = v(.targetCycle, targetCycle)
-        grabMicroDB = v(.grabMicroDB, grabMicroDB); grabRiseDB = v(.grabRiseDB, grabRiseDB)
-        grabMinDuration = v(.grabMinDuration, grabMinDuration); grabMaxDuration = v(.grabMaxDuration, grabMaxDuration)
-        grabFadeDB = v(.grabFadeDB, grabFadeDB); grabFadeFrames = v(.grabFadeFrames, grabFadeFrames)
+        grabSnapDB = v(.grabSnapDB, grabSnapDB); grabMaxDuration = v(.grabMaxDuration, grabMaxDuration)
+        grabCooldown = v(.grabCooldown, grabCooldown)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case dialEnabled, grabEnabled, dialTargets, holdDelay, dialStep, targetCycle
-        case grabMicroDB, grabRiseDB, grabMinDuration, grabMaxDuration, grabFadeDB, grabFadeFrames
+        case dialEnabled, grabEnabled, dialTargets, holdDelay, approachMarginDB, approachMinDuration, dialStep, targetCycle
+        case grabSnapDB, grabMaxDuration, grabCooldown
     }
 
     var anyEnabled: Bool { dialEnabled || grabEnabled }
@@ -55,29 +58,36 @@ public enum ControlEvent: Sendable, Equatable {
     case targetChanged(Int)
     /// Turn the target up (+) or down (−) by this fraction of its range.
     case adjust(target: Int, delta: Double)
-    /// Interaction over (hand withdrawn, typing, timeout).
+    /// Interaction over (hand withdrawn, typing, timeout, another gesture).
     case ended
 }
 
-/// Recognises "bring the hand up and hold it", then turns pushes into "up", pulls into "down", a grab into
-/// a grab, and pulling the hand away into "done".
+/// Recognises "bring the hand up and hold it", then turns pushes into "up", pulls into "down" and pulling the
+/// hand away into "done". Separately, recognises a grab from the snap of a closing hand.
 public final class InteractionDetector {
     public var config: InteractionConfig
     public var detector: DetectorConfig
 
-    public enum Phase: String, Sendable { case idle, approaching, holding, ready, grabbing, cooldown }
+    public enum Phase: String, Sendable { case idle, approaching, holding, ready, cooldown }
 
     private enum State {
         case idle
-        case approaching(start: Double)
+        case approaching(start: Double, last: Double, peak: Float, noisy: Bool)
         case settling(since: Double)
-        case ready(cycleStart: Double, target: Int, microAvg: Float)
-        case grabbing(start: Double, target: Int, peak: Float, avg: Float, fadeFrames: Int)
+        case ready(cycleStart: Double, target: Int)
         case cooldown(until: Double)
     }
 
     private var state = State.idle
     private var lastInput = -Double.infinity
+    private var lastTime: Double?
+    private var firstTime: Double?
+
+    // Grab (snap) tracking, independent of the hover state.
+    private var snap: (start: Double, last: Double, peak: Float, toward: Float, away: Float)?
+    /// Finished snaps waiting a moment to make sure no keystroke came with them.
+    private var pendingSnap: (start: Double, end: Double, peak: Float, toward: Float, away: Float)?
+    private var snapsBlockedUntil = -Double.infinity
 
     public init(config: InteractionConfig = InteractionConfig(), detector: DetectorConfig = DetectorConfig()) {
         self.config = config
@@ -86,7 +96,13 @@ public final class InteractionDetector {
 
     public func noteInput(at t: Double) { lastInput = max(lastInput, t) }
 
-    public func reset() { state = .idle }
+    public func reset() {
+        state = .idle
+        snap = nil
+        pendingSnap = nil
+        lastTime = nil
+        firstTime = nil
+    }
 
     /// Where the interaction stands (for the tutorial's live view).
     public var phase: Phase {
@@ -95,40 +111,36 @@ public final class InteractionDetector {
         case .approaching: return .approaching
         case .settling: return .holding
         case .ready: return .ready
-        case .grabbing: return .grabbing
         case .cooldown: return .cooldown
         }
     }
 
     public var isEngaged: Bool {
-        switch state {
-        case .ready, .grabbing: return true
-        default: return false
-        }
+        if case .ready = state { return true }
+        return false
     }
 
-    /// While engaged, gesture events become controls: push → up, pull → down, pulling away → done.
-    /// Returns nil when the event isn't consumed (it then acts as a normal gesture).
-    public func consume(_ e: GestureEvent) -> [ControlEvent]? {
-        let target: Int, avg: Float
-        switch state {
-        case .ready(_, let tg, let a): target = tg; avg = a
-        case .grabbing(_, let tg, _, let a, _): target = tg; avg = a
-        default: return nil
-        }
+    /// While engaged, gesture events become controls: push → up, pull → down, pulling away → done; a swipe ends
+    /// the hover and still happens. Returns nil when not engaged (the event acts as a normal gesture);
+    /// `swallow` says whether the event is used up.
+    public func consume(_ e: GestureEvent) -> (controls: [ControlEvent], swallow: Bool)? {
+        guard config.dialEnabled, case .ready(_, let target) = state else { return nil }
         switch (e.kind, e.outcome) {
         case (.push, .accepted):
-            state = .ready(cycleStart: e.end, target: target, microAvg: avg)
-            return config.dialEnabled ? [.adjust(target: target, delta: config.dialStep)] : []
+            state = .ready(cycleStart: e.end, target: target)
+            return (config.dialEnabled ? [.adjust(target: target, delta: config.dialStep)] : [], true)
         case (.pull, .accepted):
-            state = .ready(cycleStart: e.end, target: target, microAvg: avg)
-            return config.dialEnabled ? [.adjust(target: target, delta: -config.dialStep)] : []
+            state = .ready(cycleStart: e.end, target: target)
+            return (config.dialEnabled ? [.adjust(target: target, delta: -config.dialStep)] : [], true)
         case (.pull, .noReturn):
             // Moved away and didn't come back: finished.
             state = .cooldown(until: e.end + 0.5)
-            return [.ended]
+            return ([.ended], true)
+        case (.swipeLeft, .accepted), (.swipeRight, .accepted), (.grab, .accepted):
+            state = .cooldown(until: e.end + 0.3)
+            return ([.ended], false)
         default:
-            return []  // other candidates while hovering are swallowed
+            return ([], true)  // other candidates while hovering are swallowed
         }
     }
 
@@ -138,8 +150,14 @@ public final class InteractionDetector {
         var controls: [ControlEvent] = []
         var events: [GestureEvent] = []
         let t = f.time
+        let dt = lastTime.map { t - $0 } ?? 0
+        lastTime = t
+        if firstTime == nil { firstTime = t }
+        let warm = t - firstTime! >= detector.warmUp
         let on = detector.effectiveOnDB
         let off = detector.effectiveOffDB
+        // A snap or click (broadband, as loud as the Doppler) is not a hand arriving.
+        let noisy = f.referenceDB >= config.grabSnapDB
         let toward = f.towardDB >= on && f.velocity >= detector.minVelocity && f.towardDB - f.awayDB >= detector.dominanceDB
         let moving = f.towardDB >= on || f.awayDB >= on
         let typing = t - lastInput < detector.inputGuard
@@ -149,73 +167,95 @@ public final class InteractionDetector {
             state = .cooldown(until: t + cooldown)
         }
 
+        if config.grabEnabled, warm, let grab = trackSnap(f, frame: dt, pilotHz: pilotHz) {
+            if isEngaged { end(cooldown: 1.0) }
+            events.append(grab)
+        }
+
         switch state {
         case .cooldown(let until):
             if t >= until { state = .idle }
 
         case .idle:
-            if !typing && toward { state = .approaching(start: t) }
+            if config.dialEnabled && !typing && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
 
-        case .approaching(let start):
+        case .approaching(let start, var last, var peak, var wasNoisy):
+            wasNoisy = wasNoisy || noisy
+            if f.towardDB >= off { last = t; peak = max(peak, f.towardDB) }
             if typing || f.awayDB >= on {
                 state = .idle  // came straight back: a push, not a hover
             } else if f.towardDB < off {
-                state = .settling(since: t)
+                // Only a real arrival counts: strong enough, long enough, and not a snap or a click.
+                let real = !wasNoisy && peak >= detector.effectiveMinPeakDB + config.approachMarginDB
+                    && last - start >= config.approachMinDuration
+                state = real ? .settling(since: t) : .idle
             } else if t - start > 1.5 {
                 state = .idle
+            } else {
+                state = .approaching(start: start, last: last, peak: peak, noisy: wasNoisy)
             }
 
         case .settling(let since):
             if typing || moving {
                 state = .idle
             } else if t - since >= config.holdDelay {
-                state = .ready(cycleStart: t, target: 0, microAvg: f.microDB)
+                state = .ready(cycleStart: t, target: 0)
                 controls.append(.ready(target: 0))
             }
 
-        case .ready(let cycleStart, let target, var avg):
-            avg += (f.microDB - avg) * 0.05
+        case .ready(let cycleStart, let target):
             if typing {
                 end(cooldown: 0.5)
-            } else if config.grabEnabled && !moving && f.microDB >= config.grabMicroDB && f.microDB - avg >= config.grabRiseDB {
-                state = .grabbing(start: t, target: target, peak: f.microDB, avg: avg, fadeFrames: 0)
-            } else if moving {
-                state = .ready(cycleStart: t, target: target, microAvg: avg)  // a push/pull is under way
-            } else if t - cycleStart >= config.targetCycle {
+            } else if !moving && t - cycleStart >= config.targetCycle {
+                // Motion only postpones the switch (so it never lands mid-push); it doesn't restart the clock,
+                // so a hover nobody meant to start ends by itself.
                 let next = target + 1
                 if config.dialEnabled && next < config.dialTargets {
                     controls.append(.targetChanged(next))
-                    state = .ready(cycleStart: t, target: next, microAvg: avg)
+                    state = .ready(cycleStart: t, target: next)
                 } else {
                     end(cooldown: 0.3)
                 }
-            } else {
-                state = .ready(cycleStart: cycleStart, target: target, microAvg: avg)
-            }
-
-        case .grabbing(let start, let target, let peak, let avg, var fadeFrames):
-            let p = max(peak, f.microDB)
-            fadeFrames = f.microDB < p - config.grabFadeDB ? fadeFrames + 1 : 0
-            let duration = t - start
-            if typing || moving {
-                state = .ready(cycleStart: t, target: target, microAvg: avg)
-            } else if fadeFrames >= config.grabFadeFrames {
-                if duration >= config.grabMinDuration && duration <= config.grabMaxDuration + 0.1 {
-                    events.append(GestureEvent(
-                        kind: .grab, outcome: .accepted, pilotHz: pilotHz, start: start, end: t,
-                        confidence: Double(min(1, max(0.3, (p - config.grabMicroDB) / 15 + 0.55))),
-                        towardPeakDB: f.towardDB, awayPeakDB: f.awayDB, towardPeakVelocity: 0, awayPeakVelocity: 0,
-                        maxReferenceDB: f.referenceDB, microPeakDB: p))
-                    end(cooldown: 1.0)
-                } else {
-                    state = .ready(cycleStart: t, target: target, microAvg: avg)
-                }
-            } else if duration > config.grabMaxDuration + 0.4 {
-                state = .ready(cycleStart: t, target: target, microAvg: avg)
-            } else {
-                state = .grabbing(start: start, target: target, peak: p, avg: avg, fadeFrames: fadeFrames)
             }
         }
         return (controls, events)
+    }
+
+    /// Follows broadband bursts and returns a grab once a short one has passed with no keystroke around it.
+    private func trackSnap(_ f: BandFeatures, frame: Double, pilotHz: Double) -> GestureEvent? {
+        let t = f.time
+        let level = config.grabSnapDB
+        if f.referenceDB >= level && max(f.towardDB, f.awayDB) >= level {
+            if var s = snap {
+                s.last = t; s.peak = max(s.peak, f.referenceDB)
+                s.toward = max(s.toward, f.towardDB); s.away = max(s.away, f.awayDB)
+                snap = s
+            } else {
+                snap = (t, t, f.referenceDB, f.towardDB, f.awayDB)
+            }
+        } else if var s = snap {
+            if f.referenceDB >= level - 6 && t - s.start <= 1 {
+                s.last = t  // still ringing
+                snap = s
+            } else {
+                snap = nil
+                let end = s.last + max(frame, 0.005)
+                if end - s.start <= config.grabMaxDuration && s.start >= snapsBlockedUntil {
+                    pendingSnap = (s.start, end, s.peak, s.toward, s.away)
+                }
+                // Any snap (a grab, the hand opening, flapping) holds off the next grab for a moment.
+                snapsBlockedUntil = max(snapsBlockedUntil, end + 0.8)
+            }
+        }
+        guard let p = pendingSnap, t >= p.end + 0.25 else { return nil }
+        pendingSnap = nil
+        // A keystroke or click close to it means it was the keyboard or trackpad.
+        guard lastInput < p.start - detector.inputGuard else { return nil }
+        snapsBlockedUntil = max(snapsBlockedUntil, p.start + config.grabCooldown)
+        return GestureEvent(
+            kind: .grab, outcome: .accepted, pilotHz: pilotHz, start: p.start, end: p.end,
+            confidence: Double(min(1, max(0.3, (p.peak - level) / 15 + 0.5))),
+            towardPeakDB: p.toward, awayPeakDB: p.away, towardPeakVelocity: 0, awayPeakVelocity: 0,
+            maxReferenceDB: p.peak, microPeakDB: p.peak)
     }
 }

@@ -74,6 +74,9 @@ public final class PushDetector {
     private var awayStart = 0.0
     private var awayPeak: Float = 0, awayVelocity: Float = 0
     private var maxReference: Float = 0
+    /// Last three frames' broadband level; their minimum is the "sustained" level.
+    private var recentReference: [Float] = [0, 0, 0]
+    private var sustainedReference: Float { recentReference.min()! }
     private var lastInput = -Double.infinity
     private var refractoryUntil = -Double.infinity
     /// After any candidate ends, wait for both sidebands to calm down before starting a new one.
@@ -105,6 +108,8 @@ public final class PushDetector {
         }
         let on = config.effectiveOnDB
         let off = config.effectiveOffDB
+        recentReference.removeFirst()
+        recentReference.append(f.referenceDB)
         if activeFrom == nil { activeFrom = f.time + config.warmUp }
         guard f.time >= activeFrom! else { return nil }
         if waitForQuiet {
@@ -119,13 +124,13 @@ public final class PushDetector {
                 phase = .toward
                 towardStart = f.time; towardLast = f.time
                 towardPeak = f.towardDB; towardVelocity = f.velocity
-                maxReference = f.referenceDB
+                maxReference = sustainedReference
                 awayPeak = 0; awayVelocity = 0
             }
             return nil
 
         case .toward:
-            maxReference = max(maxReference, f.referenceDB)
+            maxReference = max(maxReference, sustainedReference)
             if f.awayDB >= on && f.awayDB - f.towardDB >= config.dominanceDB && f.velocity <= -config.minVelocity {
                 phase = .away
                 awayStart = f.time
@@ -146,7 +151,7 @@ public final class PushDetector {
             return nil
 
         case .away:
-            maxReference = max(maxReference, f.referenceDB)
+            maxReference = max(maxReference, sustainedReference)
             if f.awayDB >= off && f.awayDB >= f.towardDB - 1 {
                 awayLast = f.time
                 awayPeak = max(awayPeak, f.awayDB)
@@ -178,7 +183,7 @@ public final class PushDetector {
         let outcome: GestureEvent.Outcome
         if lastInput >= towardStart - config.inputGuard {
             outcome = .recentInput
-        } else if maxReference >= config.referenceRejectDB {
+        } else if maxReference >= config.referenceRejectDB && maxReference > max(towardPeak, awayPeak) - config.referenceMarginDB {
             outcome = .noiseBurst
         } else if duration > config.maxDuration {
             outcome = .tooSlow
@@ -186,8 +191,10 @@ public final class PushDetector {
             outcome = .tooFast
         } else if min(towardPeak, awayPeak) < config.effectiveMinPeakDB {
             outcome = .weak
-        } else if mirrored && awayPeak - towardPeak > 6 {
-            // A pull's away phase must be a real move, not the little dip people make before a push.
+        } else if mirrored && towardPeak < config.effectiveMinPeakDB + 2 {
+            // A pull's first (away) stroke must be a real move, not the little dip people make before a push
+            // (measured +11.2…+11.6 dB, against +12.7…+24.8 for real pulls). Whether the push that shares its
+            // return stroke wins is decided by the pipeline, which sees both.
             outcome = .weak
         } else {
             outcome = .accepted

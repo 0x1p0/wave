@@ -220,20 +220,43 @@ public final class GesturePipeline {
 
     /// One motion, one gesture. A push's second half looks like the start of a pull (and push-push like
     /// push-pull-push), so once a gesture is accepted, candidates that *started inside it* are dropped.
-    /// While hovering, gestures turn into controls instead (push = up, pull = down, moving away = done).
+    /// A pull and a push can share a stroke (the pull's return is the push's toward phase); `pullBeatsPush`
+    /// decides which one the hand meant. While hovering, gestures turn into controls instead.
     private func accept(_ event: GestureEvent, into out: inout PipelineOutput) {
         if event.start < claimedUntil - 0.02 { return }
         if event.kind == .push, event.isAccepted, let pending = pendingPull, event.start <= pending.event.end + 0.05 {
-            pendingPull = nil  // the "pull" was the lead-in to this push
+            pendingPull = nil
+            if Self.pullBeatsPush(pending.event, event) {
+                deliver(pending.event, into: &out)
+                claimedUntil = max(claimedUntil, event.end)
+                return
+            }
+            // Otherwise the "pull" was just the little dip before this push.
         }
+        deliver(event, into: &out)
+    }
+
+    /// Pull (away, then back) vs a push whose toward phase is that same return stroke. The pull wins when it
+    /// clearly came first and its away stroke was at least about as big or as fast as the push's away
+    /// stroke — that one is only the hand settling after the pull. Measured on real pulls vs pushes with a
+    /// lead-in dip, this separates all of them.
+    static func pullBeatsPush(_ pull: GestureEvent, _ push: GestureEvent) -> Bool {
+        guard pull.start < push.start - 0.05 else { return false }
+        let firstStroke = pull.awayPeakDB, firstSpeed = abs(pull.awayPeakVelocity)
+        return firstStroke >= push.awayPeakDB - 4 || firstSpeed >= abs(push.awayPeakVelocity) + 0.2
+    }
+
+    private func deliver(_ event: GestureEvent, into out: inout PipelineOutput) {
         if event.isAccepted {
             // Several pilots may see the same push: keep the first.
             guard event.end - lastAcceptedEnd > 0.3 else { return }
         }
-        if let controls = interaction.consume(event) {
-            if event.isAccepted { claimedUntil = event.end; lastAcceptedEnd = event.end }
-            out.controls += controls
-            return
+        if let consumed = interaction.consume(event) {
+            out.controls += consumed.controls
+            if consumed.swallow {
+                if event.isAccepted { claimedUntil = event.end; lastAcceptedEnd = event.end }
+                return
+            }
         }
         if event.isAccepted {
             claimedUntil = event.end

@@ -431,7 +431,7 @@ final class AppModel {
         if prefs.grabEnabled { lessons.append(.grab) }
         if prefs.swipesEnabled { lessons.append(.swipe) }
         let settings = prefs.engineSettings
-        let tutorial = TutorialModel(lessons: lessons, grabMicroDB: settings.interaction.grabMicroDB,
+        let tutorial = TutorialModel(lessons: lessons, grabSnapDB: settings.interaction.grabSnapDB,
                                      onThresholdDB: settings.detector.effectiveOnDB,
                                      dialTargetNames: prefs.dialTargets.map(\.title))
         windows.show(.tutorial, title: "Learn Wave gestures", size: NSSize(width: 940, height: 680),

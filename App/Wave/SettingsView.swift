@@ -185,7 +185,7 @@ struct GestureSettings: View {
                 }
                 Toggle(isOn: $model.prefs.grabEnabled) {
                     VStack(alignment: .leading) {
-                        Text("Grab: close your raised hand into a fist (experimental)")
+                        Text("Grab: close your open hand into a fist, quickly (experimental)")
                         Text("Finger motion is faint on MacBook microphones. Check it in the tutorial; if the meter doesn't cross the line, use Pull instead.")
                             .font(.caption).foregroundStyle(.secondary)
                     }

@@ -191,12 +191,13 @@ public enum Replay {
     ///   - onOutput: sees every chunk's output (features, display columns if `wantsDisplay`).
     public static func run(
         _ recording: LoadedRecording, pilots: [Double]? = nil, detector: DetectorConfig = DetectorConfig(),
-        fusion: FusionConfig = FusionConfig(), wantsDisplay: Bool = false, chunk: Int = 480, onOutput: ((PipelineOutput) -> Void)? = nil
+        fusion: FusionConfig = FusionConfig(), interaction: InteractionConfig = InteractionConfig(), wantsDisplay: Bool = false,
+        chunk: Int = 480, onOutput: ((PipelineOutput) -> Void)? = nil
     ) -> Result {
         let pilots = pilots ?? recording.metadata?.pilots ?? [19_000]
         let pipeline = GesturePipeline(
             sampleRate: recording.sampleRate, channels: recording.channels.count, layout: PilotLayout(pilots: pilots),
-            detector: detector, fusion: fusion)
+            detector: detector, fusion: fusion, interaction: interaction)
         pipeline.wantsDisplay = wantsDisplay
         let inputs = (recording.metadata?.inputTimes ?? []).sorted()
         var nextInput = 0

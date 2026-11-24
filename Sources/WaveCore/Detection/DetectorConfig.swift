@@ -30,6 +30,12 @@ public struct DetectorConfig: Sendable, Codable, Equatable {
     /// Reject if the reference bands (far from the pilot, where hand Doppler can't reach) rise this much:
     /// that's broadband noise (clothing, rings, typing), not a reflection.
     public var referenceRejectDB: Float = 6
+    /// …unless the Doppler sidebands stay this far above it. Both are measured as dB over their own still
+    /// baselines, so flat noise (rustling, a fist's snap, clicks) raises them alike (measured −3.5…+5 dB apart),
+    /// while a moving hand's Doppler towers over the little it spills out there (+5.7…+13 dB on real pulls).
+    /// The broadband level counts only when it lasts 3 frames (~30 ms), so a single click inside a gesture
+    /// doesn't sink it.
+    public var referenceMarginDB: Float = 5.5
     /// Ignore gestures within this long after keyboard/trackpad input.
     public var inputGuard: Double = 0.8
     /// Dead time after an accepted push.
@@ -55,13 +61,14 @@ public struct DetectorConfig: Sendable, Codable, Equatable {
         if let v = try c.decodeIfPresent(Double.self, forKey: .maxReversalGap) { maxReversalGap = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .endHold) { endHold = v }
         if let v = try c.decodeIfPresent(Float.self, forKey: .referenceRejectDB) { referenceRejectDB = v }
+        if let v = try c.decodeIfPresent(Float.self, forKey: .referenceMarginDB) { referenceMarginDB = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .inputGuard) { inputGuard = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .refractory) { refractory = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .warmUp) { warmUp = v }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sensitivity, onThresholdDB, offThresholdDB, minPeakDB, dominanceDB, minVelocity, minDuration, maxDuration, maxReversalGap, endHold, referenceRejectDB, inputGuard, refractory, warmUp
+        case sensitivity, onThresholdDB, offThresholdDB, minPeakDB, dominanceDB, minVelocity, minDuration, maxDuration, maxReversalGap, endHold, referenceRejectDB, referenceMarginDB, inputGuard, refractory, warmUp
     }
 
     var sensitivityOffsetDB: Float { Float((0.5 - min(1, max(0, sensitivity))) * 12) }

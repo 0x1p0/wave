@@ -7,7 +7,6 @@ import Testing
 @Suite("Hover controls, pull and grab")
 struct InteractionTests {
     static let palmEcho: Float = 6e-5
-    let scene = SyntheticScene(duration: 8)
 
     /// Smooth out-and-back of `depth` metres (+ = toward the screen) starting at `start`.
     static func bump(_ t: Double, start: Double, depth: Double, duration: Double = 0.5) -> Double {
@@ -21,9 +20,15 @@ struct InteractionTests {
         0.40 - 0.18 * SyntheticScene.ease(t, start: 1.0, duration: 0.35) - extra(t)
     }
 
-    func run(_ reflectors: [SyntheticScene.Reflector], inputs: [Double] = [],
-             interaction: InteractionConfig = InteractionConfig()) -> (events: [GestureEvent], controls: [ControlEvent]) {
-        let x = scene.renderSingle(reflectors: reflectors)
+    /// `snaps`: broadband bursts (start, length) — the sound of fingers closing onto the palm, or a click.
+    func run(_ reflectors: [SyntheticScene.Reflector], inputs: [Double] = [], snaps: [(Double, Double)] = [],
+             duration: Double = 8, interaction: InteractionConfig = InteractionConfig()) -> (events: [GestureEvent], controls: [ControlEvent]) {
+        let scene = SyntheticScene(duration: duration)
+        var x = scene.renderSingle(reflectors: reflectors)
+        for (i, snap) in snaps.enumerated() {
+            let b = scene.burst(start: snap.0, length: snap.1, rms: 4e-4, seed: UInt64(7 + i))
+            for k in x.indices { x[k] += b[k] }
+        }
         let pipeline = GesturePipeline(sampleRate: SyntheticScene.sampleRate, channels: 1, layout: .single(19_000),
                                        interaction: interaction)
         var events: [GestureEvent] = [], controls: [ControlEvent] = []
@@ -91,31 +96,65 @@ struct InteractionTests {
     }
 
     @Test func holdingStillCyclesTargetsThenEnds() {
-        let r = run([palm { Self.hoverZ($0) }])
+        let r = run([palm { Self.hoverZ($0) }], duration: 10)
         #expect(r.controls == [.ready(target: 0), .targetChanged(1), .ended])
     }
 
+    @Test func aTwitchWhileSittingStillDoesNotStartHover() {
+        // A 1 cm fidget: real enough to show up, too small to be a hand arriving. (This used to switch hover on
+        // and swallow the next push as "volume up".)
+        let r = run([palm { t in 0.40 - 0.01 * SyntheticScene.ease(t, start: 1.5, duration: 0.1) }])
+        #expect(r.controls.isEmpty)
+    }
+
+    @Test func aSwipeWhileHoveringEndsTheHover() {
+        let detector = InteractionDetector()
+        // Not engaged: nothing to do.
+        let swipe = GestureEvent(kind: .swipeLeft, outcome: .accepted, pilotHz: 1, start: 1, end: 1.3, confidence: 0.5,
+                                 towardPeakDB: 15, awayPeakDB: 15, towardPeakVelocity: 0.4, awayPeakVelocity: -0.4,
+                                 maxReferenceDB: 0, reversal: 1.15, lag: -0.04)
+        #expect(detector.consume(swipe) == nil)
+    }
+
+    @Test func pullWithAStrongReturnIsStillAPull() {
+        // Hand near the screen, away 12 cm over 0.3 s, then back faster (0.2 s): the return stroke is the
+        // stronger one, and a push detector sees it as a push. The pull came first, so the pull wins.
+        func z(_ t: Double) -> Double {
+            let out = SyntheticScene.ease(t, start: 2.0, duration: 0.3)
+            let back = SyntheticScene.ease(t, start: 2.3, duration: 0.2)
+            return 0.22 + 0.12 * (out - back)
+        }
+        let r = run([palm(z)])
+        #expect(accepted(r.events, .pull).count == 1)
+        #expect(accepted(r.events, .push).isEmpty)
+    }
+
     @Test func typingCancelsHover() {
-        let r = run([palm { t in Self.hoverZ(t) { t in Self.bump(t, start: 2.3, depth: 0.10) } }], inputs: [2.0])
+        // Ready at ~2.1 s; a keystroke at 2.4 s ends it, so the push at 2.7 s is not "up".
+        let r = run([palm { t in Self.hoverZ(t) { t in Self.bump(t, start: 2.7, depth: 0.10) } }], inputs: [2.4])
         #expect(r.controls.contains(.ended))
         #expect(adjustments(r.controls).isEmpty)
     }
 
     @Test func closingTheRaisedHandIsAGrab() throws {
-        // Fingers above the palm curl away from the screen and shrink at 2.6–2.85 s; the palm stays.
-        var config = InteractionConfig()
-        config.grabMicroDB = 12  // the synthetic room is quieter than a real hand's tremor
-        let fingers = SyntheticScene.Reflector(
-            amplitude: { t in Self.palmEcho * Float(1.0 - 0.8 * SyntheticScene.ease(t, start: 2.6, duration: 0.25)) },
-            position: { t in
-                let u = SyntheticScene.ease(t, start: 2.6, duration: 0.25)
-                return SIMD3(0, 0.19 - 0.05 * u, Self.hoverZ(t) + 0.04 * u)
-            })
-        let r = run([palm { Self.hoverZ($0) }, fingers], interaction: config)
+        // Hand up and still; fingers snap onto the palm at 2.6 s (~70 ms of broadband sound).
+        let r = run([palm { Self.hoverZ($0) }], snaps: [(2.6, 0.07)])
         let grabs = accepted(r.events, .grab)
         try #require(grabs.count == 1)
-        #expect(grabs[0].start > 2.55 && grabs[0].end < 3.4)
+        #expect(grabs[0].start > 2.55 && grabs[0].end < 2.8)
         #expect(accepted(r.events, .push).isEmpty)
+    }
+
+    @Test func openingTheHandAgainIsNotASecondGrab() {
+        // Close at 2.0 s, open at 3.0 s (snaps too), close again at 5.5 s.
+        let r = run([palm { Self.hoverZ($0) }], snaps: [(2.0, 0.07), (3.0, 0.06), (5.5, 0.07)])
+        #expect(accepted(r.events, .grab).map { ($0.start * 2).rounded() / 2 } == [2.0, 5.5])
+    }
+
+    @Test func longRustleOrTypingIsNotAGrab() {
+        // A 0.3 s broadband rustle, and a click that came with a keystroke.
+        let r = run([palm { Self.hoverZ($0) }], inputs: [4.02], snaps: [(2.0, 0.3), (4.0, 0.05)])
+        #expect(accepted(r.events, .grab).isEmpty)
     }
 
     @Test func stillHandTremorIsNotAGrab() {
