@@ -17,6 +17,8 @@ final class DemoSession {
         let seconds: Double
         let lesson: Lesson.Kind
         var stereo = false
+        /// Shows a text box to type into (the "type normally" step).
+        var typing = false
     }
 
     static let steps: [Step] = [
@@ -25,20 +27,44 @@ final class DemoSession {
              seconds: 8, lesson: .sonar),
         Step(id: "push", title: "Push × 5",
              instruction: "Push your open hand toward the screen and straight back out — quick, about half a second. Five times, about 3 seconds apart.",
-             seconds: 22, lesson: .push),
+             seconds: 20, lesson: .push),
         Step(id: "pull", title: "Pull × 5",
              instruction: "Hold your hand still, close to the screen (10–15 cm). Then flick it AWAY toward you and straight back — the away part quick, like a push. Five times, pausing in between.",
-             seconds: 25, lesson: .pull),
+             seconds: 22, lesson: .pull),
         Step(id: "hover", title: "Hover controls",
-             instruction: "Bring your hand up about 20 cm from the screen and HOLD IT STILL until ✋ appears. Then push = up, pull = down, two or three times. Then move your hand away. Repeat if there's time.",
-             seconds: 32, lesson: .hover),
+             instruction: "Bring your hand up briskly, about 20 cm from the screen, and hold it REALLY still until ✋ appears (about a second). Then push = up, pull = down, two or three times. Then move your hand away. Repeat if there's time.",
+             seconds: 30, lesson: .hover),
         Step(id: "grab", title: "Fist × 4",
              instruction: "Hold your open hand up, then close it into a fist quickly and firmly (fingers snapping onto the palm). Open it, wait a couple of seconds, repeat.",
-             seconds: 28, lesson: .grab),
+             seconds: 24, lesson: .grab),
         Step(id: "swipe", title: "Swipes",
              instruction: "Swipe your hand across the laptop, 15–30 cm in front of the screen, briskly: left → right, pause, right → left. Three of each.",
-             seconds: 28, lesson: .swipe, stereo: true),
+             seconds: 24, lesson: .swipe, stereo: true),
+        // Everyday use: nothing should trigger here. These catch the random volume/brightness and fist triggers.
+        Step(id: "typing", title: "Type normally",
+             instruction: "No gestures now. Type in the box below — anything, at your usual speed, with your natural pauses. Use the trackpad too: click, scroll.",
+             seconds: 25, lesson: .sonar, typing: true),
+        Step(id: "everyday", title: "Use your Mac normally",
+             instruction: "No gestures, no typing. Scroll with the trackpad, reach for your drink or phone, lean in and back, scratch your face, rest your hands on the laptop — whatever you usually do.",
+             seconds: 25, lesson: .sonar),
+        Step(id: "taps", title: "Taps",
+             instruction: "No gestures. Tap the desk next to the laptop a few times, then tap the laptop's palm rest (not the keys), then rest your palms on it.",
+             seconds: 12, lesson: .sonar),
     ]
+
+    /// The pilot layout the Wave app itself uses (two tones when swipes are on), so the session tests what
+    /// you actually run. Read from Wave's saved preferences.
+    static func appLayout() -> PilotLayout {
+        guard let data = UserDefaults(suiteName: "local.wave.Wave")?.data(forKey: "WavePreferences.v1"),
+              let prefs = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return .single(19_000) }
+        let push = prefs["pushPilotHz"] as? Double ?? 19_000
+        guard prefs["swipesEnabled"] as? Bool == true else { return .single(push) }
+        let left = prefs["leftPilotHz"] as? Double ?? 18_750
+        var right = prefs["rightPilotHz"] as? Double ?? 19_250
+        if right == 19_500 && left == 18_750 { right = 19_250 }  // same migration as the app
+        return .stereo(left: left, right: right)
+    }
 
     enum Phase: Equatable {
         /// Waiting for the user to start their screen recording and click Start.
@@ -120,6 +146,9 @@ final class DemoSession {
         engine.setFrameDelivery(all: true)
         self.engine = engine
         var settings = EngineSettings()
+        let appLayout = Self.appLayout()
+        settings.layout = appLayout
+        log.layout = appLayout.description
         engine.start(settings)
 
         // Wait until the user has their screen recording running and clicks Start.
@@ -136,9 +165,9 @@ final class DemoSession {
 
         for (i, step) in Self.steps.enumerated() {
             // Get ready (and switch to two tones for swipes).
-            let wantStereo = step.stereo
-            if wantStereo != settings.layout.isStereo {
-                settings.layout = wantStereo ? .stereo(left: 18_750, right: 19_250) : .single(19_000)
+            let wanted: PilotLayout = step.stereo && !appLayout.isStereo ? .stereo(left: 18_750, right: 19_250) : appLayout
+            if wanted != settings.layout {
+                settings.layout = wanted
                 engine.update(settings)
             }
             tutorial.index = tutorial.lessons.firstIndex { $0.kind == step.lesson } ?? 0
@@ -262,6 +291,8 @@ final class DemoSession {
 struct SessionLog: Codable {
     var started: Date?
     var cameraFile: String?
+    /// Pilot layout used (matches the Wave app's).
+    var layout: String?
     var steps: [StepLog] = []
 }
 

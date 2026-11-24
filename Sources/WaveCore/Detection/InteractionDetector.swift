@@ -8,13 +8,17 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     /// How many dial targets the app offers (holding still cycles through them).
     public var dialTargets = 2
 
-    /// After bringing the hand up, no Doppler motion for this long = "holding" → ready ✋.
-    public var holdDelay = 0.7
+    /// After bringing the hand up, holding really still for this long → ready ✋.
+    public var holdDelay = 1.0
+    /// "Really still": both sidebands below this (dB). A deliberately held hand measured ≤ 3.6 dB; ordinary
+    /// fidgeting goes well past it.
+    public var holdStillDB: Float = 5
     /// The arrival must be a real move: toward Doppler at least this many dB above the detector's minimum peak,
-    /// lasting at least `approachMinDuration`. Tiny twitches while sitting still used to switch hover on and
-    /// swallow the next push.
-    public var approachMarginDB: Float = 0
-    public var approachMinDuration = 0.05
+    /// lasting at least `approachMinDuration`. Twitches and reaching around used to switch hover on at random.
+    public var approachMarginDB: Float = 2
+    public var approachMinDuration = 0.1
+    /// No keyboard/trackpad input for this long before the hand comes up (someone working isn't hovering).
+    public var hoverInputQuiet = 2.0
     /// While ready, push = +step, pull = −step (fraction of the full range).
     public var dialStep: Double = 0.1
     /// Holding still this long switches to the next target; after the last one, the interaction ends.
@@ -27,6 +31,11 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var grabMaxDuration = 0.15
     /// Opening the hand again snaps too: ignore snaps for this long after a grab (and 0.8 s after the last one).
     public var grabCooldown = 1.8
+    /// Typing and taps snap too. A grab needs no keyboard/trackpad input for this long before the snap…
+    public var grabInputQuiet = 1.5
+    /// …nor within this long after it (a palm landing on the laptop is followed by typing). This is also
+    /// how long a grab takes to fire.
+    public var grabDecisionDelay = 0.6
 
     public init() {}
 
@@ -36,6 +45,8 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         func v<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { (try? c.decodeIfPresent(T.self, forKey: k)) ?? d }
         dialEnabled = v(.dialEnabled, dialEnabled); grabEnabled = v(.grabEnabled, grabEnabled)
         dialTargets = v(.dialTargets, dialTargets); holdDelay = v(.holdDelay, holdDelay)
+        holdStillDB = v(.holdStillDB, holdStillDB); hoverInputQuiet = v(.hoverInputQuiet, hoverInputQuiet)
+        grabInputQuiet = v(.grabInputQuiet, grabInputQuiet); grabDecisionDelay = v(.grabDecisionDelay, grabDecisionDelay)
         approachMarginDB = v(.approachMarginDB, approachMarginDB); approachMinDuration = v(.approachMinDuration, approachMinDuration)
         dialStep = v(.dialStep, dialStep); targetCycle = v(.targetCycle, targetCycle)
         grabSnapDB = v(.grabSnapDB, grabSnapDB); grabMaxDuration = v(.grabMaxDuration, grabMaxDuration)
@@ -43,8 +54,8 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case dialEnabled, grabEnabled, dialTargets, holdDelay, approachMarginDB, approachMinDuration, dialStep, targetCycle
-        case grabSnapDB, grabMaxDuration, grabCooldown
+        case dialEnabled, grabEnabled, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
+        case dialStep, targetCycle, grabSnapDB, grabMaxDuration, grabCooldown, grabInputQuiet, grabDecisionDelay
     }
 
     var anyEnabled: Bool { dialEnabled || grabEnabled }
@@ -63,7 +74,8 @@ public enum ControlEvent: Sendable, Equatable {
 }
 
 /// Recognises "bring the hand up and hold it", then turns pushes into "up", pulls into "down" and pulling the
-/// hand away into "done". Separately, recognises a grab from the snap of a closing hand.
+/// hand away into "done"; a swipe ends it and still switches desktops. Separately, recognises a grab from the
+/// snap of a closing hand.
 public final class InteractionDetector {
     public var config: InteractionConfig
     public var detector: DetectorConfig
@@ -137,6 +149,7 @@ public final class InteractionDetector {
             state = .cooldown(until: e.end + 0.5)
             return ([.ended], true)
         case (.swipeLeft, .accepted), (.swipeRight, .accepted), (.grab, .accepted):
+            // Swipes stay swipes: a hand paused between swipes looks exactly like a hover.
             state = .cooldown(until: e.end + 0.3)
             return ([.ended], false)
         default:
@@ -177,7 +190,8 @@ public final class InteractionDetector {
             if t >= until { state = .idle }
 
         case .idle:
-            if config.dialEnabled && !typing && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
+            let busy = t - lastInput < config.hoverInputQuiet
+            if config.dialEnabled && !busy && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
 
         case .approaching(let start, var last, var peak, var wasNoisy):
             wasNoisy = wasNoisy || noisy
@@ -196,7 +210,7 @@ public final class InteractionDetector {
             }
 
         case .settling(let since):
-            if typing || moving {
+            if typing || max(f.towardDB, f.awayDB) >= config.holdStillDB {
                 state = .idle
             } else if t - since >= config.holdDelay {
                 state = .ready(cycleStart: t, target: 0)
@@ -247,10 +261,11 @@ public final class InteractionDetector {
                 snapsBlockedUntil = max(snapsBlockedUntil, end + 0.8)
             }
         }
-        guard let p = pendingSnap, t >= p.end + 0.25 else { return nil }
+        guard let p = pendingSnap, t >= p.end + config.grabDecisionDelay else { return nil }
         pendingSnap = nil
-        // A keystroke or click close to it means it was the keyboard or trackpad.
-        guard lastInput < p.start - detector.inputGuard else { return nil }
+        // A keystroke or click shortly before or after it means it was the keyboard, the trackpad or a hand
+        // landing on the laptop.
+        guard lastInput < p.start - config.grabInputQuiet else { return nil }
         snapsBlockedUntil = max(snapsBlockedUntil, p.start + config.grabCooldown)
         return GestureEvent(
             kind: .grab, outcome: .accepted, pilotHz: pilotHz, start: p.start, end: p.end,

@@ -162,7 +162,7 @@ struct GestureSettings: View {
                 Toggle(isOn: $model.prefs.dialEnabled) {
                     VStack(alignment: .leading) {
                         Text("Hover controls: volume and brightness")
-                        Text("Bring your hand up about 20 cm from the screen and hold it until ✋ appears. Then push to turn up, pull to turn down. Hold still to switch between controls; move your hand away to finish.")
+                        Text("Bring your hand up about 20 cm from the screen and hold it really still until ✋ appears. Then push to turn up, pull to turn down. Hold still to switch between controls; move your hand away to finish.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

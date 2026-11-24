@@ -59,11 +59,11 @@ struct InteractionTests {
     }
 
     @Test func holdThenPushTurnsUpPullTurnsDownMoveAwayEnds() {
-        // Up and hold (1.0 s); push at 2.3 s; pull at 3.6 s; move away for good at 5.0 s.
+        // Up (1.0 s) and hold (ready at ~2.3 s); push at 2.9 s; pull at 4.2 s; move away for good at 5.6 s.
         let r = run([palm { t in
             Self.hoverZ(t) { t in
-                Self.bump(t, start: 2.3, depth: 0.10) - Self.bump(t, start: 3.6, depth: 0.10)
-                    - 0.25 * SyntheticScene.ease(t, start: 5.0, duration: 0.3)
+                Self.bump(t, start: 2.9, depth: 0.10) - Self.bump(t, start: 4.2, depth: 0.10)
+                    - 0.25 * SyntheticScene.ease(t, start: 5.6, duration: 0.3)
             }
         }])
         #expect(r.controls.first == .ready(target: 0))
@@ -107,6 +107,18 @@ struct InteractionTests {
         #expect(r.controls.isEmpty)
     }
 
+    @Test func noHoverRightAfterTyping() {
+        // Same hand-up-and-hold, but the last keystroke was 1 s before: someone working, not hovering.
+        let r = run([palm { Self.hoverZ($0) }], inputs: [0.1])
+        #expect(r.controls.isEmpty)
+    }
+
+    @Test func aTapFollowedByTypingIsNotAGrab() {
+        // A palm landing on the laptop (snap at 2.0 s), then the first keystroke 0.4 s later.
+        let r = run([palm { Self.hoverZ($0) }], inputs: [2.45], snaps: [(2.0, 0.07)])
+        #expect(accepted(r.events, .grab).isEmpty)
+    }
+
     @Test func aSwipeWhileHoveringEndsTheHover() {
         let detector = InteractionDetector()
         // Not engaged: nothing to do.
@@ -130,8 +142,8 @@ struct InteractionTests {
     }
 
     @Test func typingCancelsHover() {
-        // Ready at ~2.1 s; a keystroke at 2.4 s ends it, so the push at 2.7 s is not "up".
-        let r = run([palm { t in Self.hoverZ(t) { t in Self.bump(t, start: 2.7, depth: 0.10) } }], inputs: [2.4])
+        // Ready at ~2.3 s; a keystroke at 2.6 s ends it, so the push at 2.9 s is not "up".
+        let r = run([palm { t in Self.hoverZ(t) { t in Self.bump(t, start: 2.9, depth: 0.10) } }], inputs: [2.6])
         #expect(r.controls.contains(.ended))
         #expect(adjustments(r.controls).isEmpty)
     }

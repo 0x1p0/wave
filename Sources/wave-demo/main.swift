@@ -4,7 +4,8 @@ import SwiftUI
 // Guided gesture session for tuning and demo videos. Launch from Terminal (it has microphone access):
 //   open scripts/session.command      (or: make session)
 // Saves to ~/Library/Application Support/Wave/Sessions/<time>/: session.json (every detection with its
-// reason and time), one raw-audio .caf + .json per step, camera.mov (webcam, video only).
+// reason and time), one raw-audio .caf + .json per step (with keyboard/trackpad times), and webcam
+// snapshots (camera/<seconds>.jpg, 4 per second). Uses the same pilot layout as the Wave app.
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {

@@ -240,7 +240,8 @@ final class AppModel {
         let grabHint = prefs.grabEnabled ? "close your hand: \(prefs.mapping.grab.title)" : nil
         if let target = dialTarget {
             let pct = Int(((dialLevel ?? 0) * 100).rounded())
-            let others = prefs.dialTargets.count > 1 ? " · hold still: \(prefs.dialTargets.first { $0 != target }?.title ?? "")" : ""
+            let other = prefs.dialTargets.first { $0 != target }?.title ?? ""
+            let others = prefs.dialTargets.count > 1 ? " · hold still: \(other)" : ""
             hud.show(symbol: target.symbol, title: "\(target.title) \(pct) %",
                      subtitle: "Push ↑  Pull ↓" + others + " · move away: done",
                      level: dialLevel, sticky: true)

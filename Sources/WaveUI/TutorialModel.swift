@@ -44,7 +44,7 @@ public struct Lesson: Identifiable, Equatable, Sendable {
         case .pull:
             return "Start with your hand still, close to the screen (10–15 cm). Flick it AWAY toward you and straight back, as briskly as a push. Wave reads whichever way you moved first, so the away part has to be the quick one — a slow drift away followed by a quick return looks like a push."
         case .hover:
-            return "Bring your hand up briskly, about 20 cm from the screen, and hold it still until ✋ appears (under a second). Then push to turn up and pull to turn down (10 % each). Hold still for 3 seconds to switch between volume and brightness. Move your hand away — or swipe — to finish."
+            return "Don't touch the keyboard or trackpad for a couple of seconds. Bring your hand up briskly, about 20 cm from the screen, and hold it really still until ✋ appears (about a second). Then push to turn up and pull to turn down (10 % each). Hold still for 3 s to switch between volume and brightness. Move your hand away to finish."
         case .grab:
             return "Hold your open hand up in front of the screen, then close it into a fist quickly and firmly — fingers snapping onto your palm. Wave hears that snap: watch the Snap meter jump past the line. Opening your hand again doesn't count, so take a second between fists."
         case .swipe:

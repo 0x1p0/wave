@@ -5,6 +5,8 @@ import WaveUI
 /// The session window: what to do now (big), your webcam, and Wave's live view of your hand.
 struct DemoView: View {
     let session: DemoSession
+    @State private var typed = ""
+    @FocusState private var typingFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -81,7 +83,16 @@ struct DemoView: View {
                 }
                 Text(step.title).font(.system(size: 40, weight: .bold))
                 Text(step.instruction).font(.title2)
-                progress(for: step)
+                if step.typing {
+                    TextEditor(text: $typed)
+                        .font(.title3)
+                        .frame(height: 90)
+                        .focused($typingFocused)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)))
+                        .onAppear { typingFocused = true }
+                } else {
+                    progress(for: step)
+                }
             }
         case .finished(let text):
             Text(text).font(.system(size: 28, weight: .bold)).foregroundStyle(.green)
