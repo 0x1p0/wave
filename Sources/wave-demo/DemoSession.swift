@@ -16,54 +16,127 @@ final class DemoSession {
         let instruction: String
         let seconds: Double
         let lesson: Lesson.Kind
-        var stereo = false
+        /// What should be detected in this step (empty: nothing should happen). Used by the report.
+        var expect: [GestureEvent.Kind] = []
         /// Shows a text box to type into (the "type normally" step).
         var typing = false
     }
 
+    /// Every gesture, one labelled step each, so the report knows what you meant at every moment; then
+    /// everyday use where nothing should fire.
     static let steps: [Step] = [
         Step(id: "still", title: "Sit still",
              instruction: "Hands in your lap, away from the laptop. Don't type or touch the trackpad.",
              seconds: 8, lesson: .sonar),
         Step(id: "push", title: "Push × 5",
-             instruction: "Push your open hand toward the screen and straight back out — quick, about half a second. Five times, about 3 seconds apart.",
-             seconds: 20, lesson: .push),
-        Step(id: "pull", title: "Pull × 5",
-             instruction: "Hold your hand still, close to the screen (10–15 cm). Then flick it AWAY toward you and straight back — the away part quick, like a push. Five times, pausing in between.",
-             seconds: 22, lesson: .pull),
-        Step(id: "hover", title: "Hover controls",
-             instruction: "Bring your hand up briskly, about 20 cm from the screen, and hold it REALLY still until ✋ appears (about a second). Then push = up, pull = down, two or three times. Then move your hand away. Repeat if there's time.",
-             seconds: 30, lesson: .hover),
-        Step(id: "grab", title: "Fist × 4",
-             instruction: "Hold your open hand up, then close it into a fist quickly and firmly (fingers snapping onto the palm). Open it, wait a couple of seconds, repeat.",
-             seconds: 24, lesson: .grab),
-        Step(id: "swipe", title: "Swipes",
-             instruction: "Swipe your hand across the laptop, 15–30 cm in front of the screen, briskly: left → right, pause, right → left. Three of each.",
-             seconds: 24, lesson: .swipe, stereo: true),
-        // Everyday use: nothing should trigger here. These catch the random volume/brightness and fist triggers.
+             instruction: "Push your open hand toward the screen and straight back out, quick (about half a second). Five times, about 3 seconds apart.",
+             seconds: 20, lesson: .push, expect: [.push]),
+        Step(id: "swipe-left", title: "Swipe LEFT only × 6",
+             instruction: "Move your hand across the laptop from RIGHT to LEFT, 15–30 cm in front of the screen, briskly. After each one, drop your hand down and bring it back to the right low, out of the way. Six times.",
+             seconds: 24, lesson: .swipe, expect: [.swipeLeft]),
+        Step(id: "swipe-right", title: "Swipe RIGHT only × 6",
+             instruction: "Now the other way: from LEFT to RIGHT across the laptop, briskly. After each one, drop your hand and bring it back to the left low. Six times.",
+             seconds: 24, lesson: .swipe, expect: [.swipeRight]),
+        Step(id: "swipe-both", title: "Swipes, both ways",
+             instruction: "Swipe left, then right, then left… the way you'd naturally switch back and forth, with a short pause between.",
+             seconds: 20, lesson: .swipe, expect: [.swipeLeft, .swipeRight]),
+        Step(id: "fist", title: "Fist × 5",
+             instruction: "Hold your open hand up about 20 cm in front of the screen, then close it into a fist quickly and firmly. Open it, lower your hand, wait two seconds, repeat.",
+             seconds: 24, lesson: .grab, expect: [.grab]),
+        Step(id: "hover", title: "Volume by hovering",
+             instruction: "Push your hand TOWARD the screen and keep it there, about 20 cm away, REALLY still, until ✋ appears. Then QUICK pushes = up, QUICK pulls = down (brisk like play/pause; gentle presses don't register). Move your hand away. Repeat.",
+             seconds: 28, lesson: .hover),
+        // Everyday use: nothing should fire here.
         Step(id: "typing", title: "Type normally",
-             instruction: "No gestures now. Type in the box below — anything, at your usual speed, with your natural pauses. Use the trackpad too: click, scroll.",
-             seconds: 25, lesson: .sonar, typing: true),
+             instruction: "No gestures now. Type in the box below: anything, at your usual speed, with your natural pauses. Use the trackpad too: click, scroll.",
+             seconds: 20, lesson: .sonar, typing: true),
         Step(id: "everyday", title: "Use your Mac normally",
-             instruction: "No gestures, no typing. Scroll with the trackpad, reach for your drink or phone, lean in and back, scratch your face, rest your hands on the laptop — whatever you usually do.",
-             seconds: 25, lesson: .sonar),
+             instruction: "No gestures, no typing. Reach for your drink or phone, lean in and back, scratch your face, rest your hands on the laptop: whatever you usually do.",
+             seconds: 20, lesson: .sonar),
         Step(id: "taps", title: "Taps",
-             instruction: "No gestures. Tap the desk next to the laptop a few times, then tap the laptop's palm rest (not the keys), then rest your palms on it.",
+             instruction: "No gestures. Tap the desk next to the laptop a few times, then tap the palm rest (not the keys), then rest your palms on it.",
              seconds: 12, lesson: .sonar),
     ]
 
-    /// The pilot layout the Wave app itself uses (two tones when swipes are on), so the session tests what
-    /// you actually run. Read from Wave's saved preferences.
-    static func appLayout() -> PilotLayout {
+    /// Wave's saved preferences (the menu bar app's), as JSON.
+    static var appPrefs: [String: Any] {
         guard let data = UserDefaults(suiteName: "local.wave.Wave")?.data(forKey: "WavePreferences.v1"),
-              let prefs = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        else { return .single(19_000) }
+              let prefs = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
+        return prefs
+    }
+
+    /// The pilot layout the Wave app itself uses (two tones when swipes are on).
+    static func appLayout() -> PilotLayout {
+        let prefs = appPrefs
         let push = prefs["pushPilotHz"] as? Double ?? 19_000
         guard prefs["swipesEnabled"] as? Bool == true else { return .single(push) }
         let left = prefs["leftPilotHz"] as? Double ?? 18_750
         var right = prefs["rightPilotHz"] as? Double ?? 19_250
         if right == 19_500 && left == 18_750 { right = 19_250 }  // same migration as the app
         return .stereo(left: left, right: right)
+    }
+
+    /// Exactly the engine settings the Wave app runs with (mirrors WavePreferences.engineSettings), so the
+    /// session tests what you actually use.
+    static func appSettings() -> EngineSettings {
+        let prefs = appPrefs
+        var s = EngineSettings()
+        s.layout = appLayout()
+        if let level = prefs["levelDBFS"] as? Double { s.level.referenceAmplitudeDBFS = level }
+        if let cal = prefs["calibration"], !(cal is NSNull),
+           let data = try? JSONSerialization.data(withJSONObject: cal),
+           let profile = try? JSONDecoder().decode(CalibrationProfile.self, from: data), profile.layout == s.layout {
+            s.detector = profile.detector
+            s.fusion = profile.fusion
+            if let i = profile.interaction { s.interaction = i }
+        }
+        s.detector.sensitivity = prefs["sensitivity"] as? Double ?? 0.5
+        let targets = (prefs["dialTargets"] as? [Any])?.count ?? 2
+        s.interaction.dialEnabled = (prefs["dialEnabled"] as? Bool ?? true) && targets > 0
+        s.interaction.dialTargets = max(1, targets)
+        s.interaction.dialStep = (prefs["dialStep"] as? Double ?? 10) / 100
+        s.interaction.grabEnabled = prefs["grabEnabled"] as? Bool ?? true
+        s.interaction.pullEnabled = actionName(for: "pull") != "Nothing"
+        return s
+    }
+
+    /// What the Wave app would do for a gesture ("Next desktop", "Play/Pause", "Nothing").
+    static func actionName(for gesture: String) -> String {
+        let defaults = ["push": "Play/Pause", "swipeLeft": "Previous track", "swipeRight": "Next track",
+                        "grab": "Minimize window", "pull": "Nothing"]
+        guard let mapping = appPrefs["mapping"] as? [String: Any], let action = mapping[gesture] as? [String: Any],
+              let (kind, value) = action.first else { return defaults[gesture] ?? "?" }
+        let inner = (value as? [String: Any])?["_0"]
+        switch kind {
+        case "none": return "Nothing"
+        case "media":
+            let media = [16: "Play/Pause", 17: "Next track", 18: "Previous track", 19: "Fast forward", 20: "Rewind",
+                         0: "Volume up", 1: "Volume down", 7: "Mute"]
+            return media[(inner as? Int) ?? -1] ?? "Media key"
+        case "system": return (inner as? String).map(Self.spaced) ?? "System action"
+        case "key": return "Keyboard shortcut"
+        case "shortcut": return "Shortcut \((inner as? String) ?? "")"
+        default: return kind
+        }
+    }
+
+    /// "minimizeWindow" → "Minimize window".
+    private static func spaced(_ id: String) -> String {
+        var out = ""
+        for c in id {
+            if c.isUppercase { out += " " + c.lowercased() } else { out.append(c) }
+        }
+        return out.prefix(1).uppercased() + out.dropFirst()
+    }
+
+    static func mappingKey(_ kind: GestureEvent.Kind) -> String {
+        switch kind {
+        case .push: return "push"
+        case .pull: return "pull"
+        case .grab: return "grab"
+        case .swipeLeft: return "swipeLeft"
+        case .swipeRight: return "swipeRight"
+        }
     }
 
     enum Phase: Equatable {
@@ -145,10 +218,10 @@ final class DemoSession {
         }
         engine.setFrameDelivery(all: true)
         self.engine = engine
-        var settings = EngineSettings()
-        let appLayout = Self.appLayout()
-        settings.layout = appLayout
+        var settings = Self.appSettings()
+        let appLayout = settings.layout
         log.layout = appLayout.description
+        log.settings = String(describing: settings)
         engine.start(settings)
 
         // Wait until the user has their screen recording running and clicks Start.
@@ -165,7 +238,8 @@ final class DemoSession {
 
         for (i, step) in Self.steps.enumerated() {
             // Get ready (and switch to two tones for swipes).
-            let wanted: PilotLayout = step.stereo && !appLayout.isStereo ? .stereo(left: 18_750, right: 19_250) : appLayout
+            let needsSwipes = step.expect.contains(.swipeLeft) || step.expect.contains(.swipeRight)
+            let wanted: PilotLayout = needsSwipes && !appLayout.isStereo ? .stereo(left: 18_750, right: 19_250) : appLayout
             if wanted != settings.layout {
                 settings.layout = wanted
                 engine.update(settings)
@@ -178,7 +252,8 @@ final class DemoSession {
             // Run.
             tutorial.index = tutorial.lessons.firstIndex { $0.kind == step.lesson } ?? 0
             currentStep = i
-            log.steps.append(StepLog(id: step.id, title: step.title, start: sessionTime))
+            log.steps.append(StepLog(id: step.id, title: step.title, start: sessionTime,
+                                     expect: step.expect.map(\.rawValue)))
             engine.startRecording(directory: directory, label: step.id)
             phase = .running(step: i)
             let end = Date().addingTimeInterval(step.seconds)
@@ -255,12 +330,15 @@ final class DemoSession {
             if let i = currentIndex { log.steps[i].controls.append(LoggedControl(time: now, text: text)) }
         }
         for e in out.events {
+            let action = Self.actionName(for: Self.mappingKey(e.kind))
             let text = e.isAccepted
-                ? "✓ \(e.kind.rawValue.uppercased())" + (e.lag.map { String(format: " (lag %+.0f ms)", $0 * 1000) } ?? "")
+                ? "✓ \(e.kind.rawValue.uppercased()) → \(action)" + (e.lag.map { String(format: " (lag %+.0f ms)", $0 * 1000) } ?? "")
                 : "✗ \(e.kind.rawValue): \(e.outcome.rawValue)"
             report(text, good: e.isAccepted, at: now)
             if let i = currentIndex {
-                log.steps[i].events.append(LoggedEvent(e, start: sessionTimeOf(e.start), end: sessionTimeOf(e.end)))
+                var logged = LoggedEvent(e, start: sessionTimeOf(e.start), end: sessionTimeOf(e.end))
+                logged.action = e.isAccepted ? action : nil
+                log.steps[i].events.append(logged)
             }
         }
     }
@@ -293,6 +371,8 @@ struct SessionLog: Codable {
     var cameraFile: String?
     /// Pilot layout used (matches the Wave app's).
     var layout: String?
+    /// The engine settings used (the Wave app's).
+    var settings: String?
     var steps: [StepLog] = []
 }
 
@@ -300,6 +380,7 @@ struct StepLog: Codable {
     var id: String
     var title: String
     var start: Double
+    var expect: [String] = []
     var end: Double = 0
     var progress = 0
     var events: [LoggedEvent] = []
@@ -318,6 +399,11 @@ struct LoggedEvent: Codable {
     var duration: Double
     var lagMs: Double?
     var microPeakDB: Float?
+    var towardVelocity: Float
+    var awayVelocity: Float
+    var referenceDB: Float
+    /// What the Wave app would have done (accepted events only).
+    var action: String?
 
     init(_ e: GestureEvent, start: Double, end: Double) {
         self.start = start
@@ -330,6 +416,9 @@ struct LoggedEvent: Codable {
         duration = e.duration
         lagMs = e.lag.map { $0 * 1000 }
         microPeakDB = e.microPeakDB
+        towardVelocity = e.towardPeakVelocity
+        awayVelocity = e.awayPeakVelocity
+        referenceDB = e.maxReferenceDB
     }
 }
 

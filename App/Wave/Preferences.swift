@@ -30,8 +30,11 @@ struct WavePreferences: Codable, Equatable {
     var dialTargets: [DialTarget] = [.volume, .brightness]
     /// Level change per push / pull while hovering (%).
     var dialStep = 10.0
-    /// Close your raised hand into a fist.
-    var grabEnabled = true
+    /// Close your raised hand into a fist (only while ✋ is showing). Off by default: on a camera-checked
+    /// session it caught 2 of 5 fists, and without the ✋ requirement taps and typing set it off.
+    var grabEnabled = false
+    /// Version of the fist feature the saved `grabEnabled` was chosen for.
+    var grabVersion = 2
     var calibration: CalibrationProfile?
     var hasCompletedOnboarding = false
     var debugRecordingsEnabled = false
@@ -60,6 +63,8 @@ struct WavePreferences: Codable, Equatable {
         dialTargets = v(.dialTargets, d.dialTargets)
         dialStep = v(.dialStep, d.dialStep)
         grabEnabled = v(.grabEnabled, d.grabEnabled)
+        // The first fist detector fired on taps and typing; switch it off once, the user can turn it back on.
+        if v(.grabVersion, 1) < 2 { grabEnabled = false }
         calibration = try? c.decodeIfPresent(CalibrationProfile.self, forKey: .calibration)
         hasCompletedOnboarding = v(.hasCompletedOnboarding, d.hasCompletedOnboarding)
         debugRecordingsEnabled = v(.debugRecordingsEnabled, d.debugRecordingsEnabled)
@@ -68,7 +73,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
-        case dialEnabled, dialTargets, dialStep, grabEnabled
+        case dialEnabled, dialTargets, dialStep, grabEnabled, grabVersion
     }
 
     // MARK: Persistence

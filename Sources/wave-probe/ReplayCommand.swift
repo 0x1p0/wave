@@ -12,6 +12,11 @@ struct ReplayCommand {
         var config: DetectorConfig?
         var noHover = false
         var showRejected = true
+        /// Pull unmapped in the app: pulls only count while hovering.
+        var noPull = false
+        var noGrab = false
+        /// Writes every event (accepted and rejected) as JSON lines here.
+        var json: String?
     }
 
     let options: Options
@@ -47,6 +52,8 @@ struct ReplayCommand {
         var dial = 0.0
         var interaction = InteractionConfig()
         if options.noHover { interaction.dialEnabled = false }
+        if options.noPull { interaction.pullEnabled = false }
+        if options.noGrab { interaction.grabEnabled = false }
         let result = Replay.run(recording, pilots: pilots, detector: detector, interaction: interaction) { out in
             let t = out.frames.last?.time ?? 0
             for c in out.controls {
@@ -71,6 +78,11 @@ struct ReplayCommand {
         }
         try? csv?.close()
 
+        if let path = options.json {
+            let encoder = JSONEncoder()
+            let lines = result.events.compactMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+            try? (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        }
         let shown = options.showRejected ? result.events : result.events.filter(\.isAccepted)
         for e in shown { print(String(format: "%8.2f s  ", e.end) + e.summary) }
         controlLines.forEach { print($0) }

@@ -48,7 +48,7 @@ struct DemoView: View {
         case .waitingForStart:
             VStack(alignment: .leading, spacing: 10) {
                 Text("Ready when you are").font(.system(size: 40, weight: .bold))
-                Text("1. Start your screen recording.   2. Click Start.   Then follow the big instructions — about 3 minutes, no typing.")
+                Text("1. Start your screen recording.   2. Click Start.   Then follow the big instructions — about 4 minutes. Wave runs with your exact settings; nothing actually happens on your Mac.")
                     .font(.title2)
                 Button {
                     session.begin()

@@ -76,7 +76,7 @@ struct Arguments {
     var flags: Set<String> = []
     var positional: [String] = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "no-hover", "hold", "taps", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "no-hover", "no-pull", "no-grab", "hold", "taps", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -160,7 +160,7 @@ do {
         exitCode = await ensureMicrophoneAccess() ? DetectCommand(options: o).run() : 3
 
     case "replay":
-        try args.checkKnown(["sensitivity", "freq", "config", "csv", "accepted-only", "no-hover"])
+        try args.checkKnown(["sensitivity", "freq", "config", "csv", "accepted-only", "no-hover", "no-pull", "no-grab", "json"])
         guard let file = args.positional.first else { throw ProbeError("replay needs a .caf file") }
         var o = ReplayCommand.Options(file: file)
         o.sensitivity = try args.double("sensitivity")
@@ -169,6 +169,9 @@ do {
         o.config = try loadConfig(args.values["config"]?.last)
         o.showRejected = !args.flags.contains("accepted-only")
         o.noHover = args.flags.contains("no-hover")
+        o.noPull = args.flags.contains("no-pull")
+        o.noGrab = args.flags.contains("no-grab")
+        o.json = args.values["json"]?.last
         exitCode = try ReplayCommand(options: o).run()
 
     case "synth":

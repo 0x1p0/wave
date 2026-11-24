@@ -79,11 +79,15 @@ struct SwipeTests {
     }
 
     @Test func measuredLagsClassifyAsOnThisMac() {
-        // Real MacBook data: right→left swipes −32…−43 ms, left→right +53…+75 ms, pushes near +10 ms.
+        // Camera-checked session: pushes 0 ms; right→left swipes −21…−64 ms; left→right +21…+64 ms. One frame
+        // (±10.7 ms) is a swipe only if the hand barely came toward the screen.
         let c = FusionConfig()
-        for lag in [-0.043, -0.032, -0.021] { #expect(c.classify(lag: lag, speed: 0.5) == .swipeLeft) }
-        for lag in [0.053, 0.064, 0.075, 0.043] { #expect(c.classify(lag: lag, speed: 0.5) == .swipeRight) }
-        for lag in [-0.010, 0.0, 0.010, 0.025] { #expect(c.classify(lag: lag, speed: 1.0) == .push) }
+        let frame = 512.0 / 48_000
+        for n in [-6.0, -5, -4, -3, -2] { #expect(c.classify(lag: n * frame, speed: 1.0) == .swipeLeft) }
+        for n in [2.0, 3, 4, 5, 6] { #expect(c.classify(lag: n * frame, speed: 1.0) == .swipeRight) }
+        for n in [-1.0, 0, 1] { #expect(c.classify(lag: n * frame, speed: 0.95) == .push) }
+        #expect(c.classify(lag: frame, speed: 0.6) == .swipeRight)
+        #expect(c.classify(lag: -frame, speed: 0.6) == .swipeLeft)
     }
 
     @Test func sidewaysMotionIsNotAPush() {
@@ -98,7 +102,7 @@ struct SwipeTests {
         #expect(fusion.add(e(1.0, speed: 0.4), band: 0).isEmpty)
         #expect(fusion.flush(now: 1.6).first?.outcome == .oneSided)
         #expect(fusion.add(e(3.0, speed: 0.4), band: 0).isEmpty)
-        #expect(fusion.add(e(3.01, speed: 0.4), band: 1).first?.outcome == .sideways)
+        #expect(fusion.add(e(3.0, speed: 0.4), band: 1).first?.outcome == .sideways)
         // A real push (fast toward the screen) still counts either way.
         #expect(fusion.add(e(5.0, speed: 1.0), band: 0).isEmpty)
         #expect(fusion.flush(now: 5.6).first?.isAccepted == true)
@@ -134,6 +138,6 @@ struct SwipeTests {
         #expect(swipe.count == 1 && swipe[0].kind == .swipeLeft && swipe[0].isAccepted)
         // Two rejected halves at the same moment are not a push.
         #expect(fusion.add(e(3.00, .tooFast), band: 0).isEmpty)
-        #expect(fusion.add(e(3.01, .tooFast), band: 1).allSatisfy { !$0.isAccepted })
+        #expect(fusion.add(e(3.00, .tooFast), band: 1).allSatisfy { !$0.isAccepted })
     }
 }

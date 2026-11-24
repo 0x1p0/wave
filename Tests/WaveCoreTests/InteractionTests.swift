@@ -175,9 +175,15 @@ struct InteractionTests {
     }
 
     @Test func openingTheHandAgainIsNotASecondGrab() {
-        // Close at 2.0 s, open at 3.0 s (snaps too), close again at 5.5 s.
-        let r = run([palm { Self.hoverZ($0) }], snaps: [(2.0, 0.07), (3.0, 0.06), (5.5, 0.07)])
-        #expect(accepted(r.events, .grab).map { ($0.start * 2).rounded() / 2 } == [2.0, 5.5])
+        // Ready at ~2.3 s; close at 2.6 s, open again at 3.4 s (snaps too).
+        let r = run([palm { Self.hoverZ($0) }], snaps: [(2.6, 0.07), (3.4, 0.06)])
+        #expect(accepted(r.events, .grab).count == 1)
+    }
+
+    @Test func aSnapWithoutTheHandHeldUpIsNotAGrab() {
+        // Same snap, but the hand never came up and held still (no ✋): taps, typing, everyday noise.
+        let r = run([palm { _ in 0.40 }], snaps: [(2.6, 0.07), (5.0, 0.07)])
+        #expect(accepted(r.events, .grab).isEmpty)
     }
 
     @Test func aKnockOnTheTableIsNotAGrab() {

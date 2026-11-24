@@ -243,10 +243,11 @@ final class AppModel {
     private func showDialHUD() {
         guard prefs.showHUD else { return }
         if let target = dialTarget {
-            var hints = [HUDHint(gesture: "Push", effect: "＋"), HUDHint(gesture: "Pull", effect: "−")]
+            var hints = [HUDHint(gesture: "Quick push", effect: "＋"), HUDHint(gesture: "Quick pull", effect: "−")]
             if let other = prefs.dialTargets.first(where: { $0 != target }) {
                 hints.append(HUDHint(gesture: "Hold still", effect: other.title))
             }
+            if prefs.grabEnabled { hints.append(HUDHint(gesture: "Fist", effect: prefs.mapping.grab.shortTitle)) }
             hints.append(HUDHint(gesture: "Move away", effect: "done"))
             hud.show(symbol: target.symbol, title: target.title, subtitle: "Hover control", level: dialLevel,
                      tint: target.tint, hints: hints, sticky: true)

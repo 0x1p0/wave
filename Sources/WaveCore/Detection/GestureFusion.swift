@@ -31,15 +31,15 @@ public enum PilotLayout: Sendable, Codable, Equatable, Hashable {
 
 /// Two-pilot gesture fusion settings.
 public struct FusionConfig: Sendable, Codable, Equatable {
-    /// The lag a straight push produces on this Mac (s). Measured on a MacBook: left→right swipes +53…+75 ms,
-    /// right→left −32…−43 ms, so pushes sit around +10 ms, not 0 (the two output paths differ slightly).
-    public var lagCenter: Double = 0.010
-    /// Lag away from `lagCenter` beyond which the hand crossed the laptop: a swipe.
-    public var minSwipeLag: Double = 0.025
-    /// A smaller lag (beyond this) also means a swipe when the hand barely moved toward the screen: swipes are
-    /// mostly sideways (radial speed 0.3–0.65 m/s measured), pushes are not (0.75–1.3 m/s).
-    public var softSwipeLag: Double = 0.012
-    public var lateralSpeed: Float = 0.7
+    /// The lag a straight push produces (s). Measured with the camera on a MacBook: real pushes 0 ms; right→left
+    /// swipes −11…−64 ms, left→right +21…+64 ms. Lags come in steps of one frame (10.7 ms).
+    public var lagCenter: Double = 0
+    /// Lag away from `lagCenter` beyond which the hand crossed the laptop: a swipe (two frames or more).
+    public var minSwipeLag: Double = 0.016
+    /// A one-frame lag also means a swipe when the hand barely moved toward the screen: pushes come at it
+    /// (0.76–1.3 m/s measured), swipes mostly don't.
+    public var softSwipeLag: Double = 0.008
+    public var lateralSpeed: Float = 0.75
     /// A push comes at the screen: measured 0.76–1.25 m/s toward it, swipes 0.33–0.75. Two-tone motion with no
     /// clear left/right timing that is slower than this toward the screen is sideways, not a push (it was
     /// playing/pausing during swipes).
@@ -60,12 +60,16 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// it turning around (toward → away) a swipe-like time earlier or later. Weak swipes often reach only one tone.
     public var oneToneSwipeDB: Float = 10
 
+    /// Which measured swipe/push window these values come from (2 = camera session, lag centre 0).
+    public var windowVersion = 2
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func v<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { (try? c.decodeIfPresent(T.self, forKey: k)) ?? d }
+        windowVersion = v(.windowVersion, 1)
         lagCenter = v(.lagCenter, lagCenter)
         minSwipeLag = v(.minSwipeLag, minSwipeLag)
         softSwipeLag = v(.softSwipeLag, softSwipeLag)
@@ -77,17 +81,21 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         swipeMinPeakDB = v(.swipeMinPeakDB, swipeMinPeakDB)
         minPushSpeed = v(.minPushSpeed, minPushSpeed)
         oneToneSwipeDB = v(.oneToneSwipeDB, oneToneSwipeDB)
-        // Settings saved before lagCenter existed measured the lag around 0 with a wider cut-off (45 ms),
-        // which turned right→left swipes into pushes. Use the measured defaults instead.
-        if !c.contains(.lagCenter) {
-            lagCenter = FusionConfig().lagCenter
-            minSwipeLag = FusionConfig().minSwipeLag
+        // Settings saved before the camera-measured window (v2) used a wider cut-off that turned swipes into
+        // pushes. Use the measured defaults instead.
+        if windowVersion < 2 {
+            let fresh = FusionConfig()
+            lagCenter = fresh.lagCenter
+            minSwipeLag = fresh.minSwipeLag
+            softSwipeLag = fresh.softSwipeLag
+            lateralSpeed = fresh.lateralSpeed
+            windowVersion = 2
         }
     }
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
-        case minPushSpeed, oneToneSwipeDB
+        case minPushSpeed, oneToneSwipeDB, windowVersion
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.
@@ -158,7 +166,7 @@ public final class GestureFusion {
         let lag = reversal(right) - reversal(left)  // > 0: left side first → hand moving left → right
         let anyAccepted = left.isAccepted || right.isAccepted
         let speed = max(left.towardPeakVelocity, right.towardPeakVelocity)
-        let kind = config.classify(lag: lag, speed: speed)
+        let kind = config.classify(lag: lag, speed: (left.towardPeakVelocity + right.towardPeakVelocity) / 2)
         var e = left.isAccepted || !right.isAccepted ? left : right
         e.kind = kind
         e.start = min(left.start, right.start)

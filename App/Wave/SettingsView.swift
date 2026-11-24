@@ -166,7 +166,8 @@ struct GestureSettings: View {
 
             Section("Fist") {
                 Toggle(isOn: $model.prefs.grabEnabled) {
-                    SettingLabel("Close your hand into a fist", "Hold an open hand up, then close it quickly and firmly. Taps on the desk don't count.")
+                    SettingLabel("Close your hand into a fist (experimental)",
+                                 "Hold your open hand up really still until ✋ appears, then close it quickly and firmly. It only counts while ✋ is showing, so taps and typing can't set it off — but it misses some fists.")
                 }
                 if model.prefs.grabEnabled {
                     GestureRow(kind: .grab, action: $model.prefs.mapping.grab, shortcuts: shortcuts) { model.perform(.grab) }
@@ -176,7 +177,7 @@ struct GestureSettings: View {
             Section("Hover controls") {
                 Toggle(isOn: $model.prefs.dialEnabled) {
                     SettingLabel("Volume and brightness by hovering",
-                                 "Bring your hand up and hold it really still until ✋ appears, then push for ＋ and pull for −. Hold still to switch control; move away to finish.")
+                                 "Push your hand toward the screen and keep it there, really still, until ✋ appears. Then quick pushes for ＋ and quick pulls for −. Hold still to switch control; move away to finish.")
                 }
                 if model.prefs.dialEnabled {
                     Picker("Controls", selection: $model.prefs.dialTargets) {

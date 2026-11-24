@@ -38,6 +38,9 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var grabUltrasonicOverAudibleDB: Float = 6
     /// Opening the hand again snaps too: ignore snaps for this long after a grab (and 0.8 s after the last one).
     public var grabCooldown = 1.8
+    /// Taps, knocks, typing and everyday movement snap too — on a real session they outnumbered fists 11 to 2.
+    /// So a fist only counts while the hand is up and held still (✋ ready), which none of those reach.
+    public var grabNeedsReady = true
     /// Typing and taps snap too. A grab needs no keyboard/trackpad input for this long before the snap…
     public var grabInputQuiet = 1.5
     /// …nor within this long after it (a palm landing on the laptop is followed by typing). This is also
@@ -60,12 +63,13 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         grabSnapDB = v(.grabSnapDB, grabSnapDB); grabMaxDuration = v(.grabMaxDuration, grabMaxDuration)
         grabCooldown = v(.grabCooldown, grabCooldown)
         grabUltrasonicOverAudibleDB = v(.grabUltrasonicOverAudibleDB, grabUltrasonicOverAudibleDB)
+        grabNeedsReady = v(.grabNeedsReady, grabNeedsReady)
     }
 
     private enum CodingKeys: String, CodingKey {
         case dialEnabled, grabEnabled, pullEnabled, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
         case dialStep, targetCycle, grabSnapDB, grabMaxDuration, grabCooldown, grabInputQuiet, grabDecisionDelay
-        case grabUltrasonicOverAudibleDB
+        case grabUltrasonicOverAudibleDB, grabNeedsReady
     }
 
     var anyEnabled: Bool { dialEnabled || grabEnabled }
@@ -106,7 +110,7 @@ public final class InteractionDetector {
     private var firstTime: Double?
 
     // Grab (snap) tracking, independent of the hover state.
-    private var snap: (start: Double, last: Double, peak: Float, toward: Float, away: Float, audible: Float)?
+    private var snap: (start: Double, last: Double, peak: Float, toward: Float, away: Float, audible: Float, ready: Bool)?
     /// Finished snaps waiting a moment to make sure no keystroke came with them.
     private var pendingSnap: (start: Double, end: Double, peak: Float, toward: Float, away: Float)?
     private var snapsBlockedUntil = -Double.infinity
@@ -201,7 +205,8 @@ public final class InteractionDetector {
 
         case .idle:
             let busy = t - lastInput < config.hoverInputQuiet
-            if config.dialEnabled && !busy && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
+            let wantsHover = config.dialEnabled || (config.grabEnabled && config.grabNeedsReady)
+            if wantsHover && !busy && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
 
         case .approaching(let start, var last, var peak, var wasNoisy):
             wasNoisy = wasNoisy || noisy
@@ -256,7 +261,7 @@ public final class InteractionDetector {
                 s.audible = max(s.audible, f.audibleDB)
                 snap = s
             } else {
-                snap = (t, t, f.referenceDB, f.towardDB, f.awayDB, f.audibleDB)
+                snap = (t, t, f.referenceDB, f.towardDB, f.awayDB, f.audibleDB, isEngaged)
             }
         } else if var s = snap {
             if f.referenceDB >= level - 6 && t - s.start <= 1 {
@@ -267,7 +272,8 @@ public final class InteractionDetector {
                 snap = nil
                 let end = s.last + max(frame, 0.005)
                 let quietToTheEar = s.peak - s.audible >= config.grabUltrasonicOverAudibleDB
-                if end - s.start <= config.grabMaxDuration && quietToTheEar && s.start >= snapsBlockedUntil {
+                let handUp = s.ready || !config.grabNeedsReady
+                if end - s.start <= config.grabMaxDuration && quietToTheEar && handUp && s.start >= snapsBlockedUntil {
                     pendingSnap = (s.start, end, s.peak, s.toward, s.away)
                 }
                 // Any snap (a grab, the hand opening, flapping) holds off the next grab for a moment.
