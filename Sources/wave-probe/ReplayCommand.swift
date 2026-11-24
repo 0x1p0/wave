@@ -55,8 +55,10 @@ struct ReplayCommand {
         if options.noPull { interaction.pullEnabled = false }
         if options.noGrab { interaction.grabEnabled = false }
         var lastPhase = InteractionDetector.Phase.idle
+        var latencies: [Double] = []
         let result = Replay.run(recording, pilots: pilots, detector: detector, interaction: interaction) { out in
             let t = out.frames.last?.time ?? 0
+            for e in out.events where e.isAccepted { latencies.append(t - (e.reversal ?? e.end)) }
             if out.interactionPhase != lastPhase {
                 lastPhase = out.interactionPhase
                 if lastPhase == .holding { controlLines.append(String(format: "%8.2f s  ✋ holding…", t)) }
@@ -91,6 +93,11 @@ struct ReplayCommand {
         let shown = options.showRejected ? result.events : result.events.filter(\.isAccepted)
         for e in shown { print(String(format: "%8.2f s  ", e.end) + e.summary) }
         controlLines.forEach { print($0) }
+        if !latencies.isEmpty {
+            let sorted = latencies.sorted()
+            print(String(format: "Decision delay after the hand turned around: median %.0f ms, worst %.0f ms",
+                         sorted[sorted.count / 2] * 1000, sorted.last! * 1000))
+        }
         let accepted = result.events.filter(\.isAccepted).count
         print("\n\(accepted) gesture(s) accepted, \(result.events.count - accepted) candidate(s) rejected, \(result.frames) frames.")
         if let live = recording.metadata?.liveEvents {

@@ -35,6 +35,8 @@ struct WavePreferences: Codable, Equatable {
     var grabEnabled = false
     /// Version of the fist feature the saved `grabEnabled` was chosen for.
     var grabVersion = 2
+    /// Version of the swipe directions in `mapping` (2: swipe left = the tab/slide on the left).
+    var mappingVersion = 2
     var calibration: CalibrationProfile?
     var hasCompletedOnboarding = false
     var debugRecordingsEnabled = false
@@ -59,6 +61,15 @@ struct WavePreferences: Codable, Equatable {
         if rightPilotHz == 19_500 && leftPilotHz == 18_750 { rightPilotHz = 19_250 }
         levelDBFS = v(.levelDBFS, d.levelDBFS)
         mapping = v(.mapping, d.mapping)
+        // The first Browser tabs / Presenting setups had left and right swapped (swiping left went to the tab
+        // on the right). Swap them once.
+        if v(.mappingVersion, 1) < 2 {
+            for (next, previous) in [(SystemAction.nextTab, SystemAction.previousTab), (.nextSlide, .previousSlide)]
+            where mapping.swipeLeft == .system(next) && mapping.swipeRight == .system(previous) {
+                mapping.swipeLeft = .system(previous)
+                mapping.swipeRight = .system(next)
+            }
+        }
         dialEnabled = v(.dialEnabled, d.dialEnabled)
         dialTargets = v(.dialTargets, d.dialTargets)
         dialStep = v(.dialStep, d.dialStep)
@@ -73,7 +84,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
-        case dialEnabled, dialTargets, dialStep, grabEnabled, grabVersion
+        case dialEnabled, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
     }
 
     // MARK: Persistence
@@ -184,16 +195,29 @@ struct GesturePreset: Identifiable {
         GesturePreset(id: "desktops", title: "Desktops", detail: "Push play/pause · swipe between desktops",
                       symbol: "rectangle.split.3x1", push: .media(.playPause), swipeLeft: .system(.nextDesktop),
                       swipeRight: .system(.previousDesktop)),
-        GesturePreset(id: "browser", title: "Browser tabs", detail: "Push play/pause · swipe to the next/previous tab",
-                      symbol: "safari", push: .media(.playPause), swipeLeft: .system(.nextTab), swipeRight: .system(.previousTab)),
+        GesturePreset(id: "browser", title: "Browser tabs", detail: "Push play/pause · swipe left for the tab on the left, right for the right",
+                      symbol: "safari", push: .media(.playPause), swipeLeft: .system(.previousTab), swipeRight: .system(.nextTab)),
         GesturePreset(id: "reading", title: "Reading", detail: "Push play/pause · swipe to page down/up",
                       symbol: "book", push: .media(.playPause), swipeLeft: .system(.pageDown), swipeRight: .system(.pageUp)),
-        GesturePreset(id: "slides", title: "Presenting", detail: "Push for the next slide · swipe forward/back",
-                      symbol: "play.rectangle", push: .system(.nextSlide), swipeLeft: .system(.nextSlide),
-                      swipeRight: .system(.previousSlide)),
+        GesturePreset(id: "slides", title: "Presenting", detail: "Push for the next slide · swipe right for next, left for back",
+                      symbol: "play.rectangle", push: .system(.nextSlide), swipeLeft: .system(.previousSlide),
+                      swipeRight: .system(.nextSlide)),
         GesturePreset(id: "youtube", title: "YouTube", detail: "Push play/pause · swipe to skip ±10 s",
                       symbol: "play.tv", push: .media(.playPause), swipeLeft: .key(.youTubeBack10), swipeRight: .key(.youTubeForward10)),
     ]
+
+    /// One word for tight spaces (the menu).
+    var shortTitle: String {
+        switch id {
+        case "media": return "Tracks"
+        case "desktops": return "Desktops"
+        case "browser": return "Tabs"
+        case "reading": return "Pages"
+        case "slides": return "Slides"
+        case "youtube": return "±10 s"
+        default: return title
+        }
+    }
 
     func matches(_ m: GestureMapping) -> Bool { m.push == push && m.swipeLeft == swipeLeft && m.swipeRight == swipeRight }
 

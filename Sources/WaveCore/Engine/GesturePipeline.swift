@@ -301,6 +301,7 @@ public final class GesturePipeline {
         if event.isAccepted {
             claimedUntil = event.end
             lastAcceptedEnd = event.end
+            interaction.noteGesture(at: event.end)
         }
         out.events.append(event)
     }

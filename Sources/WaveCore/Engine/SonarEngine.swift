@@ -266,7 +266,8 @@ public final class SonarEngine: @unchecked Sendable {
         } else {
             tickLive(now)
         }
-        if now - lastDelivery >= 1.0 / 30 { deliver() }
+        // Frames go to the UI at 30 Hz; a gesture or control goes out the moment it's detected.
+        if now - lastDelivery >= 1.0 / 30 || !pendingEvents.isEmpty || !pendingControls.isEmpty { deliver() }
     }
 
     private func tickLive(_ now: Double) {

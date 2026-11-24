@@ -24,8 +24,14 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var hoverInputQuiet = 2.0
     /// While ready, push = +step, pull = −step (fraction of the full range).
     public var dialStep: Double = 0.1
-    /// Holding still this long switches to the next target; after the last one, the interaction ends.
-    public var targetCycle = 3.0
+    /// The hover closes by itself this long after the last adjustment (or after it opened). Motion postpones it,
+    /// so it never closes mid-push.
+    public var targetCycle = 4.0
+    /// After bringing the hand in, it has this long to settle (small drifts restart the hold instead of
+    /// cancelling it).
+    public var settleWindow = 4.0
+    /// No hover right after a push or swipe: a hand stopping after a gesture isn't asking for volume.
+    public var afterGestureQuiet = 1.2
 
     /// Grab: closing the hand makes a short "snap" (fingers meeting the palm) that lights up the whole
     /// ultrasonic band — measured at +12…+30 dB for ~40–90 ms. It must be at least this loud…
@@ -64,12 +70,14 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         grabCooldown = v(.grabCooldown, grabCooldown)
         grabUltrasonicOverAudibleDB = v(.grabUltrasonicOverAudibleDB, grabUltrasonicOverAudibleDB)
         grabNeedsReady = v(.grabNeedsReady, grabNeedsReady)
+        settleWindow = v(.settleWindow, settleWindow)
+        afterGestureQuiet = v(.afterGestureQuiet, afterGestureQuiet)
     }
 
     private enum CodingKeys: String, CodingKey {
         case dialEnabled, grabEnabled, pullEnabled, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
         case dialStep, targetCycle, grabSnapDB, grabMaxDuration, grabCooldown, grabInputQuiet, grabDecisionDelay
-        case grabUltrasonicOverAudibleDB, grabNeedsReady
+        case grabUltrasonicOverAudibleDB, grabNeedsReady, settleWindow, afterGestureQuiet
     }
 
     var anyEnabled: Bool { dialEnabled || grabEnabled }
@@ -99,13 +107,15 @@ public final class InteractionDetector {
     private enum State {
         case idle
         case approaching(start: Double, last: Double, peak: Float, noisy: Bool)
-        case settling(since: Double)
-        case ready(cycleStart: Double, target: Int)
+        case settling(since: Double, arrived: Double)
+        /// `adjusted`: a push or pull has changed the level in this hover (so it's surely wanted).
+        case ready(cycleStart: Double, target: Int, adjusted: Bool)
         case cooldown(until: Double)
     }
 
     private var state = State.idle
     private var lastInput = -Double.infinity
+    private var lastGesture = -Double.infinity
     private var lastTime: Double?
     private var firstTime: Double?
 
@@ -121,6 +131,9 @@ public final class InteractionDetector {
     }
 
     public func noteInput(at t: Double) { lastInput = max(lastInput, t) }
+
+    /// A push or swipe was just recognised (and acted on); the hand stopping after it isn't a hover.
+    public func noteGesture(at t: Double) { lastGesture = max(lastGesture, t) }
 
     public func reset() {
         state = .idle
@@ -150,20 +163,26 @@ public final class InteractionDetector {
     /// the hover and still happens. Returns nil when not engaged (the event acts as a normal gesture);
     /// `swallow` says whether the event is used up.
     public func consume(_ e: GestureEvent) -> (controls: [ControlEvent], swallow: Bool)? {
-        guard config.dialEnabled, case .ready(_, let target) = state else { return nil }
+        guard config.dialEnabled, case .ready(_, let target, let adjusted) = state else { return nil }
         switch (e.kind, e.outcome) {
         case (.push, .accepted):
-            state = .ready(cycleStart: e.end, target: target)
+            state = .ready(cycleStart: e.end, target: target, adjusted: true)
             return (config.dialEnabled ? [.adjust(target: target, delta: config.dialStep)] : [], true)
         case (.pull, .accepted):
-            state = .ready(cycleStart: e.end, target: target)
+            state = .ready(cycleStart: e.end, target: target, adjusted: true)
             return (config.dialEnabled ? [.adjust(target: target, delta: -config.dialStep)] : [], true)
-        case (.pull, .noReturn):
-            // Moved away and didn't come back: finished.
-            state = .cooldown(until: e.end + 0.5)
-            return ([.ended], true)
-        case (.swipeLeft, .accepted), (.swipeRight, .accepted), (.grab, .accepted):
-            // Swipes stay swipes: a hand paused between swipes looks exactly like a hover.
+        case (.swipeLeft, .accepted), (.swipeRight, .accepted):
+            // Once you've changed a level, a swipe switches between volume and brightness. Before that the hover
+            // may be one nobody meant (a hand pausing between swipes), so the swipe ends it and does its usual
+            // thing; so does any swipe with only one control.
+            guard config.dialTargets > 1, adjusted else {
+                state = .cooldown(until: e.end + 0.3)
+                return ([.ended], false)
+            }
+            let next = (target + 1) % config.dialTargets
+            state = .ready(cycleStart: e.end, target: next, adjusted: true)
+            return ([.targetChanged(next)], true)
+        case (.grab, .accepted):
             state = .cooldown(until: e.end + 0.3)
             return ([.ended], false)
         default:
@@ -204,7 +223,7 @@ public final class InteractionDetector {
             if t >= until { state = .idle }
 
         case .idle:
-            let busy = t - lastInput < config.hoverInputQuiet
+            let busy = t - lastInput < config.hoverInputQuiet || t - lastGesture < config.afterGestureQuiet
             let wantsHover = config.dialEnabled || (config.grabEnabled && config.grabNeedsReady)
             if wantsHover && !busy && toward && !noisy { state = .approaching(start: t, last: t, peak: f.towardDB, noisy: false) }
 
@@ -217,34 +236,32 @@ public final class InteractionDetector {
                 // Only a real arrival counts: strong enough, long enough, and not a snap or a click.
                 let real = !wasNoisy && peak >= detector.effectiveMinPeakDB + config.approachMarginDB
                     && last - start >= config.approachMinDuration
-                state = real ? .settling(since: t) : .idle
+                state = real ? .settling(since: t, arrived: t) : .idle
             } else if t - start > 1.5 {
                 state = .idle
             } else {
                 state = .approaching(start: start, last: last, peak: peak, noisy: wasNoisy)
             }
 
-        case .settling(let since):
-            if typing || max(f.towardDB, f.awayDB) >= config.holdStillDB {
+        case .settling(let since, let arrived):
+            if typing || t - lastGesture < 0.1 {
                 state = .idle
+            } else if max(f.towardDB, f.awayDB) >= config.holdStillDB {
+                // A small drift restarts the hold; giving up only once the hand had its chance to settle.
+                state = t - arrived > config.settleWindow ? .idle : .settling(since: t, arrived: arrived)
             } else if t - since >= config.holdDelay {
-                state = .ready(cycleStart: t, target: 0)
+                state = .ready(cycleStart: t, target: 0, adjusted: false)
                 controls.append(.ready(target: 0))
             }
 
-        case .ready(let cycleStart, let target):
+        case .ready(let cycleStart, let target, _):
             if typing {
                 end(cooldown: 0.5)
             } else if !moving && t - cycleStart >= config.targetCycle {
-                // Motion only postpones the switch (so it never lands mid-push); it doesn't restart the clock,
-                // so a hover nobody meant to start ends by itself.
-                let next = target + 1
-                if config.dialEnabled && next < config.dialTargets {
-                    controls.append(.targetChanged(next))
-                    state = .ready(cycleStart: t, target: next)
-                } else {
-                    end(cooldown: 0.3)
-                }
+                // Nothing for a while: close. Motion only postpones it (never mid-push); it doesn't restart the
+                // clock, so a hover nobody meant to start goes away by itself.
+                _ = target
+                end(cooldown: 0.3)
             }
         }
         return (controls, events)

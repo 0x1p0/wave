@@ -68,13 +68,14 @@ struct InteractionTests {
     }
 
     @Test func holdThenPushTurnsUpPullTurnsDownMoveAwayEnds() {
-        // Up (1.0 s) and hold (ready at ~2.3 s); push at 2.9 s; pull at 4.2 s; move away for good at 5.6 s.
+        // Up (1.0 s) and hold (ready at ~2.1 s); push at 2.9 s; pull at 4.2 s; move away at 5.6 s; closes ~4 s
+        // after the last change.
         let r = run([palm { t in
             Self.hoverZ(t) { t in
                 Self.bump(t, start: 2.9, depth: 0.10) - Self.bump(t, start: 4.2, depth: 0.10)
                     - 0.25 * SyntheticScene.ease(t, start: 5.6, duration: 0.3)
             }
-        }])
+        }], duration: 11)
         #expect(r.controls.first == .ready(target: 0))
         #expect(adjustments(r.controls) == [0.1, -0.1])
         #expect(r.controls.last == .ended)
@@ -112,9 +113,15 @@ struct InteractionTests {
         #expect(accepted(r.events, .pull).isEmpty)
     }
 
-    @Test func holdingStillCyclesTargetsThenEnds() {
+    @Test func holdingStillClosesByItself() {
         let r = run([palm { Self.hoverZ($0) }], duration: 10)
-        #expect(r.controls == [.ready(target: 0), .targetChanged(1), .ended])
+        #expect(r.controls == [.ready(target: 0), .ended])
+    }
+
+    @Test func smallDriftsDontCancelTheHold() {
+        // Hand arrives, then wobbles 4 mm at 1.7 s (enough to break "really still"), then holds: still opens.
+        let r = run([palm { t in Self.hoverZ(t) { t in Self.bump(t, start: 1.7, depth: 0.004, duration: 0.25) } }])
+        #expect(r.controls.first == .ready(target: 0))
     }
 
     @Test func aTwitchWhileSittingStillDoesNotStartHover() {

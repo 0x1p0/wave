@@ -26,6 +26,10 @@ public struct DetectorConfig: Sendable, Codable, Equatable {
     public var maxReversalGap: Double = 0.25
     /// The away phase ends after it has been below the off threshold this long.
     public var endHold: Double = 0.04
+    /// Decide as soon as the return is clearly under way — this long into the away phase with a strong enough
+    /// peak — instead of waiting for it to fade out (which the 85 ms analysis window drags out further).
+    /// Makes gestures feel ~0.1–0.2 s quicker. 0 turns it off.
+    public var earlyDecision: Double = 0.05
 
     /// Reject if the reference bands (far from the pilot, where hand Doppler can't reach) rise this much:
     /// that's broadband noise (clothing, rings, typing), not a reflection.
@@ -60,6 +64,7 @@ public struct DetectorConfig: Sendable, Codable, Equatable {
         if let v = try c.decodeIfPresent(Double.self, forKey: .maxDuration) { maxDuration = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .maxReversalGap) { maxReversalGap = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .endHold) { endHold = v }
+        if let v = try c.decodeIfPresent(Double.self, forKey: .earlyDecision) { earlyDecision = v }
         if let v = try c.decodeIfPresent(Float.self, forKey: .referenceRejectDB) { referenceRejectDB = v }
         if let v = try c.decodeIfPresent(Float.self, forKey: .referenceMarginDB) { referenceMarginDB = v }
         if let v = try c.decodeIfPresent(Double.self, forKey: .inputGuard) { inputGuard = v }
@@ -68,7 +73,7 @@ public struct DetectorConfig: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sensitivity, onThresholdDB, offThresholdDB, minPeakDB, dominanceDB, minVelocity, minDuration, maxDuration, maxReversalGap, endHold, referenceRejectDB, referenceMarginDB, inputGuard, refractory, warmUp
+        case sensitivity, onThresholdDB, offThresholdDB, minPeakDB, dominanceDB, minVelocity, minDuration, maxDuration, maxReversalGap, endHold, earlyDecision, referenceRejectDB, referenceMarginDB, inputGuard, refractory, warmUp
     }
 
     var sensitivityOffsetDB: Float { Float((0.5 - min(1, max(0, sensitivity))) * 12) }

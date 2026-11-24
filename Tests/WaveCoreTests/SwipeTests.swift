@@ -66,7 +66,7 @@ struct SwipeTests {
                          maxReferenceDB: 0, reversal: rev)
         }
         #expect(fusion.add(e(1.00), band: 0).isEmpty)
-        let swipe = fusion.add(e(1.12), band: 1)
+        let swipe = fusion.add(e(1.08), band: 1)
         #expect(swipe.first?.kind == .swipeRight)
         // A strong push seen by one tone only still counts…
         #expect(fusion.add(e(2.0), band: 1).isEmpty)

@@ -68,7 +68,9 @@ public final class PushDetector {
     /// Mirror image: detects away → toward (a pull) instead of toward → away.
     public let mirrored: Bool
 
-    private enum Phase { case idle, toward, away }
+    /// `trailing`: the event already went out (early decision); follow the rest of the away phase exactly as if
+    /// it hadn't, so the next candidate starts where it always would have.
+    private enum Phase { case idle, toward, away, trailing }
     private var phase = Phase.idle
     private var towardStart = 0.0, towardLast = 0.0
     private var towardPeak: Float = 0, towardVelocity: Float = 0
@@ -81,6 +83,7 @@ public final class PushDetector {
     private var sustainedReference: Float { recentReference.min()! }
     private var lastInput = -Double.infinity
     private var refractoryUntil = -Double.infinity
+    private var trailingAccepted = false
     /// After any candidate ends, wait for both sidebands to calm down before starting a new one.
     private var waitForQuiet = false
     /// Detection starts `warmUp` after the first frame (and again after `reset()`).
@@ -152,6 +155,18 @@ public final class PushDetector {
             }
             return nil
 
+        case .trailing:
+            if f.awayDB >= off && f.awayDB >= f.towardDB - 1 {
+                awayLast = f.time
+            } else if f.time - awayLast >= config.endHold || f.time - towardStart > config.maxDuration + 0.25 {
+                phase = .idle
+                waitForQuiet = true
+                // The dead time after a gesture counts from where the movement really ended, as without the
+                // early decision.
+                if trailingAccepted { refractoryUntil = max(refractoryUntil, awayLast + config.refractory) }
+            }
+            return nil
+
         case .away:
             maxReference = max(maxReference, sustainedReference)
             if f.awayDB >= off && f.awayDB >= f.towardDB - 1 {
@@ -160,6 +175,15 @@ public final class PushDetector {
                 awayVelocity = min(awayVelocity, f.velocity)
             } else if f.time - awayLast >= config.endHold {
                 return finish(end: awayLast)
+            }
+            // Early decision: the return is clearly happening; no need to wait for it to fade out.
+            if config.earlyDecision > 0 && f.time - awayStart >= config.earlyDecision
+                && awayPeak >= config.effectiveMinPeakDB && f.time - towardStart >= config.minDuration {
+                let e = finish(end: f.time)
+                phase = .trailing
+                waitForQuiet = false
+                trailingAccepted = e.isAccepted
+                return e
             }
             if f.time - towardStart > config.maxDuration + 0.25 {
                 return finish(end: f.time)

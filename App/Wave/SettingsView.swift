@@ -500,10 +500,10 @@ struct HoverPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         step(1, "Push your open hand toward the screen and keep it there, about 20 cm away.",
                              "Raising it from below doesn't count: Wave needs to see it come toward the screen.")
-                        step(2, "Hold it really still. A ring fills up, then ✋ appears.", nil)
+                        step(2, "Hold it still. A ring fills up, then ✋ appears.", "Small wobbles are fine; it just waits a moment longer. Not right after a push or swipe.")
                         step(3, "Quick push = up, quick pull = down.",
                              "Brisk, like play/pause. Gentle presses are too slow for the sonar to see.")
-                        step(4, "Hold still 3 s to switch to the other control; move away when you're done.", nil)
+                        step(4, "Swipe to switch between volume and brightness. It closes by itself 4 s after your last change.", nil)
                     }
                 }
                 VStack(spacing: 0) {

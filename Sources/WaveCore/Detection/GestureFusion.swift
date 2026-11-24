@@ -45,9 +45,9 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// playing/pausing during swipes).
     public var minPushSpeed: Float = 0.55
     /// The two speakers' events must reverse within this of each other to be the same gesture.
-    public var maxPairGap: Double = 0.3
+    public var maxPairGap: Double = 0.15
     /// How long to wait for the other speaker before giving up on a one-sided event.
-    public var pairTimeout: Double = 0.35
+    public var pairTimeout: Double = 0.2
     /// Flip left/right (set by calibration if the speaker/mic geometry reverses the lag sign).
     public var invertSwipeDirection = false
     /// A push seen by only one tone still counts if both its phases peaked at least this high (dB).

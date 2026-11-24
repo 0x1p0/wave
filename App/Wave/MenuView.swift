@@ -1,75 +1,31 @@
 import SwiftUI
 import WaveCore
 
-/// The menu bar panel: status at a glance, what each gesture does, the two settings people actually change,
-/// and the way to everything else.
+/// The menu bar panel: a live view of Wave listening, the last gesture, what your swipes do (one tap to
+/// change), the gesture legend, quick controls, and shortcuts to everything else.
 struct MenuView: View {
     @Bindable var model: AppModel
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            SonarHeader(model: model)
             VStack(alignment: .leading, spacing: 14) {
                 fixes
-                cheatSheet
-                if let last = model.lastGesture { lastGesture(last) }
-                quickSettings
+                LastGestureCard(model: model)
+                if model.prefs.swipesEnabled { swipeModes }
+                legend
+                quickControls
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
             Divider()
             footer
         }
-        .frame(width: 340)
+        .frame(width: 360)
     }
 
-    // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(statusColor.opacity(0.16))
-                Image(systemName: model.health == .listening ? "dot.radiowaves.left.and.right" : model.menuSymbol)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(statusColor)
-                    .symbolEffect(.variableColor.iterative.reversing, isActive: model.health == .listening)
-            }
-            .frame(width: 38, height: 38)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Wave").font(.system(size: 15, weight: .semibold))
-                Text(statusLine)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            Toggle("", isOn: $model.prefs.enabled)
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .help(model.prefs.enabled ? "Turn Wave off" : "Turn Wave on")
-        }
-        .padding(14)
-    }
-
-    private var statusLine: String {
-        switch model.health {
-        case .listening: return "Listening for gestures"
-        case .off: return "Off"
-        default: return model.statusText
-        }
-    }
-
-    private var statusColor: Color {
-        switch model.health {
-        case .listening: return .green
-        case .idle: return .secondary
-        case .off: return .secondary
-        case .problem: return .orange
-        }
-    }
-
-    // MARK: Problems that stop Wave, each with its one-click fix
+    // MARK: Problems, each with its fix
 
     @ViewBuilder private var fixes: some View {
         if model.micPermission != .authorized {
@@ -83,81 +39,85 @@ struct MenuView: View {
                        button: "Set to 50 %") { model.setSpeakers(to: 0.5) }
         }
         if !model.accessibilityTrusted {
-            FixCallout(text: "Wave needs Accessibility to press media keys and shortcuts.", button: "Grant…") {
-                model.requestAccessibility()
-            }
+            FixCallout(text: "Wave needs Accessibility to press keys for you.", button: "Grant…") { model.requestAccessibility() }
         }
     }
 
-    // MARK: What each gesture does
+    // MARK: What swipes do, one tap to change
 
-    private var cheatSheet: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Gestures").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Button("Change…") { model.showSettings(tab: .gestures) }
-                    .buttonStyle(.link)
-                    .font(.system(size: 12))
-            }
-            VStack(spacing: 0) {
-                ForEach(Array(cards.enumerated()), id: \.element.title) { i, card in
-                    if i > 0 { Divider().padding(.leading, 44) }
-                    LegendRow(card: card, recent: isRecent(card))
+    private var swipeModes: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            SectionTitle("Swipes switch")
+            HStack(spacing: 6) {
+                ForEach(GesturePreset.all) { preset in
+                    let on = preset.matches(model.prefs.mapping)
+                    Button {
+                        withAnimation(.snappy(duration: 0.25)) { preset.apply(to: &model.prefs.mapping) }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: preset.symbol).font(.system(size: 14, weight: .semibold))
+                            Text(preset.shortTitle).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                        }
+                        .foregroundStyle(on ? .white : .primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(on ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.primary.opacity(0.06)),
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(preset.detail)
                 }
             }
-            .padding(.vertical, 2)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
-    private var cards: [GestureCardInfo] {
+    // MARK: Gesture legend
+
+    private var legend: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                SectionTitle("Your gestures")
+                Spacer()
+                Button("Change…") { model.showSettings(tab: .gestures) }.buttonStyle(.link).font(.system(size: 11.5))
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                ForEach(chips, id: \.title) { chip in
+                    LegendChip(info: chip, recent: isRecent(chip))
+                }
+            }
+        }
+    }
+
+    private var chips: [GestureCardInfo] {
         let m = model.prefs.mapping
-        var c: [GestureCardInfo] = [GestureCardInfo(title: "Push", symbol: GestureEvent.Kind.push.symbol, tint: GestureEvent.Kind.push.tint,
-                              action: m.push.shortTitle, kind: .push)]
-        if model.prefs.swipesEnabled {
-            c.append(GestureCardInfo(title: "Swipe left", symbol: GestureEvent.Kind.swipeLeft.symbol, tint: GestureEvent.Kind.swipeLeft.tint,
-                          action: m.swipeLeft.shortTitle, kind: .swipeLeft))
-            c.append(GestureCardInfo(title: "Swipe right", symbol: GestureEvent.Kind.swipeRight.symbol, tint: GestureEvent.Kind.swipeRight.tint,
-                          action: m.swipeRight.shortTitle, kind: .swipeRight))
-        }
-        if m.pull != .none {
-            c.append(GestureCardInfo(title: "Pull", symbol: GestureEvent.Kind.pull.symbol, tint: GestureEvent.Kind.pull.tint,
-                          action: m.pull.shortTitle, kind: .pull))
-        }
-        if model.prefs.grabEnabled {
-            c.append(GestureCardInfo(title: "Fist", symbol: GestureEvent.Kind.grab.symbol, tint: GestureEvent.Kind.grab.tint,
-                          action: m.grab.shortTitle, kind: .grab))
-        }
+        var c = [info(.push, m.push)]
+        if model.prefs.swipesEnabled { c += [info(.swipeLeft, m.swipeLeft), info(.swipeRight, m.swipeRight)] }
+        if m.pull != .none { c.append(info(.pull, m.pull)) }
+        if model.prefs.grabEnabled { c.append(info(.grab, m.grab)) }
         if model.prefs.dialEnabled, !model.prefs.dialTargets.isEmpty {
-            c.append(GestureCardInfo(title: "Hover & hold", symbol: "dial.medium.fill", tint: .pink,
-                          action: model.prefs.dialTargets.map(\.title).joined(separator: " · "), kind: nil))
+            c.append(GestureCardInfo(title: "Hold up", symbol: "dial.medium.fill", tint: .pink,
+                                     action: model.prefs.dialTargets.count > 1 ? "Volume, brightness" : model.prefs.dialTargets[0].title,
+                                     kind: nil))
         }
         return c
     }
 
-    private func isRecent(_ card: GestureCardInfo) -> Bool {
-        guard let last = model.lastGesture, let kind = card.kind else { return false }
-        return last.kind == kind && Date().timeIntervalSince(last.at) < 4
+    private func info(_ kind: GestureEvent.Kind, _ action: GestureAction) -> GestureCardInfo {
+        GestureCardInfo(title: kind.title, symbol: kind.symbol, tint: kind.tint, action: action.shortTitle, kind: kind)
     }
 
-    private func lastGesture(_ last: (kind: GestureEvent.Kind, action: GestureAction, at: Date)) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "clock.arrow.circlepath").foregroundStyle(.tertiary)
-            Text("\(last.kind.title) → \(last.action.shortTitle)").lineLimit(1)
-            Spacer()
-            Text(last.at, style: .relative).foregroundStyle(.tertiary).monospacedDigit()
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.secondary)
+    private func isRecent(_ chip: GestureCardInfo) -> Bool {
+        guard let last = model.lastGesture, let kind = chip.kind else { return false }
+        return last.kind == kind && Date().timeIntervalSince(last.at) < 3
     }
 
-    // MARK: The two settings people change
+    // MARK: Quick controls
 
-    private var quickSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var quickControls: some View {
+        VStack(spacing: 10) {
             HStack {
-                Text("Sensitivity").font(.system(size: 13))
+                Text("Sensitivity").font(.system(size: 12.5))
                 Spacer()
                 Picker("Sensitivity", selection: sensitivity) {
                     Text("Strict").tag(0.2)
@@ -168,18 +128,23 @@ struct MenuView: View {
                 .labelsHidden()
                 .frame(width: 210)
             }
-            Toggle(isOn: $model.prefs.onlyWhileMediaPlaying) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Only while media is playing").font(.system(size: 13))
-                    Text(mediaCaption).font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                if let until = model.snoozedUntil {
+                    PillButton(title: "Resume (snoozed till \(until.formatted(date: .omitted, time: .shortened)))",
+                               symbol: "moon.zzz.fill", tint: .indigo, active: true) { model.snooze(for: nil) }
+                } else {
+                    PillButton(title: "Snooze 1 hour", symbol: "moon.zzz", tint: .indigo, active: false) { model.snooze(for: 3600) }
                 }
+                PillButton(title: model.prefs.onlyWhileMediaPlaying ? "Only with media" : "Always listening",
+                           symbol: model.prefs.onlyWhileMediaPlaying ? "music.note" : "ear", tint: .teal,
+                           active: model.prefs.onlyWhileMediaPlaying) {
+                    model.prefs.onlyWhileMediaPlaying.toggle()
+                }
+                .help("Only listen while something is playing (and a few minutes after)")
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
         }
     }
 
-    /// Snaps the continuous sensitivity to the three presets for the segmented control.
     private var sensitivity: Binding<Double> {
         Binding(
             get: {
@@ -189,31 +154,131 @@ struct MenuView: View {
             set: { model.prefs.sensitivity = $0 })
     }
 
-    private var mediaCaption: String {
-        if !model.prefs.onlyWhileMediaPlaying { return "Wave listens all the time" }
-        let apps = Set(model.mediaApps.map(MediaActivity.owningApp(of:))).sorted()
-        return apps.isEmpty ? "Paused until something plays" : "Playing: " + apps.joined(separator: ", ")
-    }
-
     // MARK: Footer
 
     private var footer: some View {
-        VStack(spacing: 0) {
-            MenuRow(title: "Practice gestures…", symbol: "graduationcap") { model.showTutorial() }
-            MenuRow(title: "Calibrate for this room…", symbol: "tuningfork") { model.showCalibration() }
-            MenuRow(title: "Settings…", symbol: "gearshape", shortcut: "⌘,") { model.showSettings() }
-                .keyboardShortcut(",", modifiers: .command)
-            Divider().padding(.vertical, 4).padding(.horizontal, 8)
-            MenuRow(title: "Quit Wave", symbol: "power", shortcut: "⌘Q") { NSApp.terminate(nil) }
-                .keyboardShortcut("q", modifiers: .command)
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                FooterTile(title: "Practice", symbol: "graduationcap.fill", tint: .green) { model.showTutorial() }
+                FooterTile(title: "Calibrate", symbol: "tuningfork", tint: .purple) { model.showCalibration() }
+                FooterTile(title: "Settings", symbol: "gearshape.fill", tint: .gray) { model.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            HStack {
+                Text(model.gesturesToday == 0 ? "No gestures yet today"
+                     : "\(model.gesturesToday) gesture\(model.gesturesToday == 1 ? "" : "s") today")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Quit Wave") { NSApp.terminate(nil) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .keyboardShortcut("q", modifiers: .command)
+            }
+            .padding(.horizontal, 4)
         }
-        .padding(6)
+        .padding(10)
+    }
+}
+
+// MARK: - Header
+
+/// Wave's status with a live sonar: rings ripple out while it's listening.
+private struct SonarHeader: View {
+    @Bindable var model: AppModel
+
+    private var listening: Bool { model.health == .listening }
+    private var color: Color {
+        switch model.health {
+        case .listening: return .green
+        case .problem: return .orange
+        default: return .gray
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 13) {
+            ZStack {
+                if listening {
+                    TimelineView(.animation) { tl in
+                        let t = tl.date.timeIntervalSinceReferenceDate
+                        ZStack {
+                            ForEach(0..<3) { i in
+                                let p = (t / 1.8 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+                                Circle().stroke(color.opacity(0.55 * (1 - p)), lineWidth: 1.5)
+                                    .frame(width: 22 + 30 * p, height: 22 + 30 * p)
+                            }
+                        }
+                    }
+                }
+                Circle().fill(color.gradient).frame(width: 30, height: 30)
+                Image(systemName: listening ? "hand.wave.fill" : model.menuSymbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 52, height: 52)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Wave").font(.system(size: 16, weight: .bold))
+                Text(statusLine).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: $model.prefs.enabled).toggleStyle(.switch).labelsHidden()
+                .help(model.prefs.enabled ? "Turn Wave off" : "Turn Wave on")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(LinearGradient(colors: [color.opacity(listening ? 0.16 : 0.06), .clear], startPoint: .top, endPoint: .bottom))
+    }
+
+    private var statusLine: String {
+        switch model.health {
+        case .listening: return "Listening — wave at your screen"
+        case .off: return "Off"
+        default: return model.statusText
+        }
+    }
+}
+
+// MARK: - Last gesture
+
+/// The last gesture and what it did; glows in the gesture's colour for a moment after it happens.
+private struct LastGestureCard: View {
+    let model: AppModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let fresh = model.lastGesture.map { Date().timeIntervalSince($0.at) < 2.5 } ?? false
+            HStack(spacing: 10) {
+                if let last = model.lastGesture {
+                    GestureBadge(symbol: last.action.symbol, tint: last.kind.tint, size: 32)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(last.action.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        Text("\(last.kind.title) · \(last.at.formatted(.relative(presentation: .named)))")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if fresh { Image(systemName: "checkmark.circle.fill").foregroundStyle(last.kind.tint) }
+                } else {
+                    GestureBadge(symbol: "sparkles", tint: .gray, size: 32)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Try a gesture").font(.system(size: 13, weight: .semibold))
+                        Text("Push toward the screen, or swipe across it").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            .padding(10)
+            .background((fresh ? model.lastGesture?.kind.tint ?? .clear : .clear).opacity(0.18),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .animation(.easeOut(duration: 0.3), value: fresh)
+        }
     }
 }
 
 // MARK: - Pieces
 
-/// One gesture and what it does, for the cheat sheet.
+/// One gesture and what it does, for the legend.
 struct GestureCardInfo {
     let title: String
     let symbol: String
@@ -222,24 +287,77 @@ struct GestureCardInfo {
     let kind: GestureEvent.Kind?
 }
 
-private struct LegendRow: View {
-    let card: GestureCardInfo
+private struct LegendChip: View {
+    let info: GestureCardInfo
     let recent: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            GestureBadge(symbol: card.symbol, tint: card.tint, size: 24)
-            Text(card.title).font(.system(size: 13))
-            Spacer(minLength: 8)
-            Text(card.action)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(card.action == "Nothing" ? .tertiary : .secondary)
-                .lineLimit(1)
+        HStack(spacing: 8) {
+            GestureBadge(symbol: info.symbol, tint: info.tint, size: 24)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(info.title).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                Text(info.action).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.75)
+                    .foregroundStyle(info.action == "Nothing" ? .tertiary : .primary)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(recent ? card.tint.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(7)
+        .background(recent ? info.tint.opacity(0.2) : Color.primary.opacity(0.045),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .animation(.easeOut(duration: 0.25), value: recent)
+    }
+}
+
+private struct SectionTitle: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+    }
+}
+
+private struct PillButton: View {
+    let title: String
+    let symbol: String
+    let tint: Color
+    let active: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .foregroundStyle(active ? .white : .primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(active ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(Color.primary.opacity(0.06)), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FooterTile: View {
+    let title: String
+    let symbol: String
+    let tint: Color
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                GestureBadge(symbol: symbol, tint: tint, size: 28)
+                Text(title).font(.system(size: 11, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(hovering ? 0.09 : 0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -258,34 +376,6 @@ private struct FixCallout: View {
         }
         .padding(10)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
-/// A native-looking menu row: highlights on hover.
-private struct MenuRow: View {
-    let title: String
-    let symbol: String
-    var shortcut: String? = nil
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).frame(width: 18).foregroundStyle(hovering ? .white : .secondary)
-                Text(title)
-                Spacer()
-                if let shortcut { Text(shortcut).foregroundStyle(hovering ? .white.opacity(0.8) : .secondary) }
-            }
-            .font(.system(size: 13))
-            .foregroundStyle(hovering ? .white : .primary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(hovering ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
     }
 }
 

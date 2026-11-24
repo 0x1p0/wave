@@ -46,6 +46,26 @@ final class AppModel {
     private(set) var speakerMuted = false
     private(set) var amplitudeDBFS: Double?
     private(set) var lastGesture: (kind: GestureEvent.Kind, action: GestureAction, at: Date)?
+    /// Gestures acted on today (for the menu).
+    private(set) var gesturesToday = 0
+    @ObservationIgnored private var gesturesDay = Calendar.current.startOfDay(for: Date())
+    /// Wave is snoozed (not listening) until then.
+    private(set) var snoozedUntil: Date?
+
+    /// Stops listening for a while; it comes back by itself.
+    func snooze(for seconds: TimeInterval?) {
+        snoozedUntil = seconds.map { Date().addingTimeInterval($0) }
+        reevaluate()
+        if let until = snoozedUntil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + until.timeIntervalSinceNow + 0.5) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let s = self.snoozedUntil, s <= Date() else { return }
+                    self.snoozedUntil = nil
+                    self.reevaluate()
+                }
+            }
+        }
+    }
     private(set) var recentEvents: [GestureEvent] = []
 
     // MARK: Collaborators
@@ -156,6 +176,9 @@ final class AppModel {
                 if !prefs.enabled { return "Off" }
                 if micPermission != .authorized { return "Microphone access needed" }
                 if let r = system.pauseReason { return r }
+                if let until = snoozedUntil, until > Date() {
+                    return "Snoozed until \(until.formatted(date: .omitted, time: .shortened))"
+                }
                 if prefs.onlyWhileMediaPlaying && !mediaWindowOpen { return "Waiting for media to play" }
                 return nil
             }
@@ -276,11 +299,10 @@ final class AppModel {
         if let target = dialTarget {
             var hints = [HUDHint(gesture: "Quick push", effect: "＋"), HUDHint(gesture: "Quick pull", effect: "−")]
             if let other = prefs.dialTargets.first(where: { $0 != target }) {
-                hints.append(HUDHint(gesture: "Hold still", effect: other.title))
+                hints.append(HUDHint(gesture: "Then swipe", effect: other.title))
             }
             if prefs.grabEnabled { hints.append(HUDHint(gesture: "Fist", effect: prefs.mapping.grab.shortTitle)) }
-            hints.append(HUDHint(gesture: "Move away", effect: "done"))
-            hud.show(symbol: target.symbol, title: target.title, subtitle: "Hover control", level: dialLevel,
+            hud.show(symbol: target.symbol, title: target.title, subtitle: "Closes by itself when you stop", level: dialLevel,
                      tint: target.tint, hints: hints, sticky: true)
         } else if prefs.grabEnabled {
             hud.show(symbol: "hand.raised.fill", title: "Ready", subtitle: "Make a fist: \(prefs.mapping.grab.title)",
@@ -302,6 +324,9 @@ final class AppModel {
         let action = prefs.mapping[kind]
         lastGestureDate = Date()
         lastGesture = (kind, action, Date())
+        let today = Calendar.current.startOfDay(for: Date())
+        if today != gesturesDay { gesturesDay = today; gesturesToday = 0 }
+        gesturesToday += 1
         switch ActionPerformer.perform(action) {
         case .done:
             if prefs.showHUD, action != .none {
