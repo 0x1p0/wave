@@ -73,6 +73,7 @@ final class DemoSession {
     @ObservationIgnored private var relaunchWave: URL?
 
     var sessionTime: Double { Date().timeIntervalSince(clockStart) }
+    @ObservationIgnored private var finishedCleanly = false
 
     init() {
         let stamp = DateFormatter()
@@ -151,6 +152,8 @@ final class DemoSession {
             writeLog()
         }
 
+        guard !finishedCleanly else { return }
+        finishedCleanly = true
         phase = .finished("Saving…")
         engine.stopAndWait()
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in camera.stop { c.resume() } }
@@ -161,6 +164,27 @@ final class DemoSession {
         }
         let ok = log.steps.map { "\($0.title): \($0.progress)" }.joined(separator: " · ")
         phase = .finished("All done — thank you! \(ok). Saved to \(directory.path)")
+    }
+
+    /// Window closed / quit before the end: keep everything recorded so far (finalised video, log,
+    /// raw audio) and reopen the Wave app.
+    func finishEarly() async {
+        guard !finishedCleanly else { return }
+        finishedCleanly = true
+        if let engine {
+            engine.stopRecording()
+            if currentStep != nil, !log.steps.isEmpty {
+                log.steps[log.steps.count - 1].end = sessionTime
+                log.steps[log.steps.count - 1].progress = tutorial.progress
+            }
+            engine.stopAndWait()
+        }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in camera.stop { c.resume() } }
+        writeLog()
+        try? "partial\n".write(to: directory.appendingPathComponent("DONE"), atomically: true, encoding: .utf8)
+        if let url = relaunchWave {
+            _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 
     // MARK: Engine output
