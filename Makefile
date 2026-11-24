@@ -8,7 +8,7 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture tutorial clean
+.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture tutorial session clean
 
 probe:
 	@set -o pipefail; xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
@@ -105,6 +105,12 @@ demo: probe app-debug
 	$(PROBE) synth build/demo.caf
 	$(PROBE) replay build/demo.caf
 	$(DEBUG_APP) --replay build/demo.caf
+
+# Guided gesture session: webcam + big instructions + live sonar, logging everything for tuning.
+DEMO_APP := $(DERIVED)/Build/Products/Release/wave-demo
+session:
+	@set -o pipefail; xcodebuild -scheme wave-demo -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
+	$(DEMO_APP)
 
 # Guided ~1 minute recording of your real gestures for tuning (quits and reopens the Wave app).
 capture: probe

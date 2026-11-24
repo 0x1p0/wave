@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "WaveUI", targets: ["WaveUI"]),
         .executable(name: "wave-probe", targets: ["wave-probe"]),
         .executable(name: "wave-debug", targets: ["wave-debug"]),
+        .executable(name: "wave-demo", targets: ["wave-demo"]),
     ],
     targets: [
         // Tiny C shim: C11 atomics for the lock-free audio ring buffer and an
@@ -18,6 +19,8 @@ let package = Package(
         // SwiftUI debug views (spectrogram, traces, event log), reused by the menu bar app in M2.
         .target(name: "WaveUI", dependencies: ["WaveCore"], path: "Sources/WaveUI"),
         .executableTarget(name: "wave-debug", dependencies: ["WaveCore", "WaveUI"], path: "Sources/wave-debug"),
+        // Guided recording session: webcam + instructions + live sonar, with logs for tuning.
+        .executableTarget(name: "wave-demo", dependencies: ["WaveCore", "WaveUI"], path: "Sources/wave-demo"),
         .executableTarget(name: "wave-probe", dependencies: ["WaveCore", "WaveRT"], path: "Sources/wave-probe"),
         .testTarget(name: "WaveCoreTests", dependencies: ["WaveCore"], path: "Tests/WaveCoreTests"),
     ]

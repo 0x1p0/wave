@@ -56,6 +56,9 @@ let usage = """
           Guided ~1 minute recording of your real gestures (still, push, hold & slide, fist, swipes),
           saved to ~/Library/Application Support/Wave/Captures for tuning.
 
+      wave-probe frames VIDEO --at t1,t2,… [--out DIR] [--width PX]
+          Stills from a session's webcam video at the given times (seconds).
+
       wave-probe synth [--hold] OUT.caf
           Writes a synthetic 14 s demo recording (pushes, a weak push, noise burst, one-way motion,
           a push right after typing) for trying replay and the debug window without waving.
@@ -187,6 +190,16 @@ do {
     case "capture":
         // Guided recording of real gestures for tuning (quits/reopens the Wave app around it).
         exitCode = await ensureMicrophoneAccess() ? await CaptureCommand().run() : 3
+
+    case "frames":
+        try args.checkKnown(["at", "out", "width"])
+        guard let path = args.positional.first else { throw ProbeError("frames needs a video file") }
+        let video = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let times = (args.values["at"]?.last ?? "").split(separator: ",").compactMap { Double($0) }
+        guard !times.isEmpty else { throw ProbeError("frames needs --at t1,t2,…") }
+        let out = args.values["out"]?.last.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            ?? video.deletingLastPathComponent().appendingPathComponent("frames")
+        exitCode = try await FramesCommand.run(video: video, times: times, out: out, width: Int(try args.double("width") ?? 640))
 
     case "media":
         // Which other processes are playing audio (for "only listen while media is playing").

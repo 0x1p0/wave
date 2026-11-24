@@ -151,10 +151,12 @@ public struct TutorialView: View {
 
 /// Side view: the laptop screen on the left sending out its (inaudible) waves, your hand on the right.
 /// The hand moves with the motion Wave measures and glows green (toward) or orange (away).
-struct LiveSonarView: View {
+public struct LiveSonarView: View {
     let model: TutorialModel
 
-    var body: some View {
+    public init(model: TutorialModel) { self.model = model }
+
+    public var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             let pos = model.handPosition, toward = model.toward, away = model.away, micro = model.micro
@@ -227,10 +229,12 @@ struct LiveSonarView: View {
 // MARK: - Animated demo of each gesture
 
 /// A small looping animation of what the hand should do (screen on the left).
-struct GestureDemo: View {
+public struct GestureDemo: View {
     let kind: Lesson.Kind
 
-    var body: some View {
+    public init(kind: Lesson.Kind) { self.kind = kind }
+
+    public var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
@@ -276,13 +280,20 @@ struct GestureDemo: View {
 
 // MARK: - Meter
 
-struct Meter: View {
+public struct Meter: View {
     let title: String
     let value: Double
     let color: Color
     var mark: Double? = nil
 
-    var body: some View {
+    public init(title: String, value: Double, color: Color, mark: Double? = nil) {
+        self.title = title
+        self.value = value
+        self.color = color
+        self.mark = mark
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             GeometryReader { geo in
