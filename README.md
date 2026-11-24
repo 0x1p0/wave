@@ -18,13 +18,34 @@ across the laptop to switch tabs in your browser, tracks in Spotify, slides in K
 - **Knows what you're doing.** Smart mode makes the same swipe do the right thing in each app and on YouTube.
 - **Built on measurements.** Tuned on real recordings of real hands, with a webcam-labelled test bench.
 
+## Download
+
+**[Download Wave for Mac](https://github.com/0x1p0/wave/releases/latest/download/Wave.dmg)** (universal: Apple silicon
+and Intel, macOS 14 or later, any MacBook). Free and open source. All versions are on the
+[Releases](https://github.com/0x1p0/wave/releases) page.
+
+1. Open the DMG and drag **Wave** into **Applications**.
+2. Open Wave from Applications. Wave is signed but not yet notarized by Apple, so the first time macOS says it
+   can't verify it: click **Done**, then go to **System Settings → Privacy & Security**, scroll down to the
+   message about Wave and click **Open Anyway** (then **Open**). This is needed once.
+3. Wave appears in the menu bar (a hand icon) and walks you through two permissions:
+   **Microphone**, to hear the echo of its tone, and **Accessibility**, to press keys for you.
+4. Open **Practice** from the menu and try a push: open hand toward the screen and straight back out.
+
+<p align="center">
+  <img src="docs/images/installer.png" width="560" alt="The Wave installer: drag Wave into Applications">
+</p>
+
 ## What you can do
 
 | Gesture | Motion | What it does |
 |---|---|---|
 | **Push** | Open hand toward the screen and back, about half a second | Play / Pause |
 | **Swipe left / right** | A brisk pass across the laptop, 15–30 cm in front of the screen | Follows the app you're in (below); desktops everywhere else |
+| **Push twice** | Two pushes within about a second | Screenshot of the whole screen |
 | **Pull** | From close up, flick your hand back toward you | Anything you map it to |
+| **Walk away** | Get up and leave the laptop | Pauses what's playing, and resumes it when you're back (can also lock the screen) |
+| **Draw a letter** | Draw a letter you taught Wave, about a second, in the air | Opens the app you chose for it (experimental) |
 | **Volume, brightness** | Pick the Volume or Brightness swipe mode, then swipe right for more, left for less | |
 
 Any gesture can trigger media keys, window and desktop actions (Mission Control, next desktop, minimize, full
@@ -112,8 +133,9 @@ listening and nothing while idle.
 - **Latest labelled session**, replayed through the current detector: 45 correct detections and 2 false ones
   (hand movements during the fist and hover steps read as swipes). Nothing triggered during typing, everyday
   use or taps, and no swipe was mistaken for a push.
-- **75 unit tests** on synthetic sonar scenes: a geometric hand model in front of two speakers, pushes, pulls,
-  swipes in both directions, noise bursts, typing, fists.
+- **82 unit tests** on synthetic sonar scenes: a geometric hand model in front of two speakers, pushes, pulls,
+  swipes in both directions, noise bursts, typing, fists, someone walking away and back, and letters drawn in
+  the air.
 
 ## Privacy
 
@@ -123,10 +145,10 @@ listening and nothing while idle.
 - The **orange microphone dot** in the menu bar is on whenever Wave is listening: that's Wave hearing its own tone.
 - The detection log holds gesture names, timings and levels as text; never sound.
 
-## Get started
+## Build from source
 
-Requires a MacBook (built-in speakers and microphones), macOS 14 or later, and Xcode to build. Swift 6, Apple
-frameworks only, no third-party dependencies.
+Requires a MacBook (built-in speakers and microphones), macOS 14 or later, and Xcode. Swift 6, Apple frameworks
+only, no third-party dependencies.
 
 ```sh
 make install     # build Wave.app, copy it to /Applications and start it
@@ -138,9 +160,11 @@ Wave lives in the menu bar. The first launch asks for **Microphone** access (to 
 
 ## Status and what's next
 
-Push and swipes are the solid core. Volume and brightness work reliably through swipe modes. Two features are
-**experimental and off by default**:
+Push and swipes are the solid core. Volume and brightness work reliably through swipe modes. Walk away, come back
+is on by default (locking the screen is opt-in). Three features are **experimental and off by default**:
 
+- **Air letters.** Wave hears left/right and toward/away but not up/down, so it learns how *your* letters sound
+  rather than what they look like. Teach each one three times in **Settings → Air letters**.
 - **Hovering for volume.** A hand held still and a hand that just paused look the same to sonar.
 - **Fist.** Recognised from the faint sound of fingers meeting the palm; it only counts while the hand is held up.
 
@@ -148,7 +172,8 @@ Next:
 
 - Learn each person's gestures from labelled samples (the app already records them as feature data, no audio).
 - More sites in smart mode, and per-site actions.
-- Developer ID signing and notarization for distribution (`scripts/release.sh`).
+- Notarization by Apple, so the first launch doesn't need **Open Anyway** (`scripts/release-notarized.sh`, once
+  there's a Developer ID).
 
 ## Development
 
@@ -177,5 +202,7 @@ docs/                   Measurements and design notes
 scripts/                Session report and replay, release, icon, CPU measurement
 ```
 
-For distribution, change the bundle identifier (`local.wave.Wave`) to one you own and run
-`scripts/release.sh --team TEAMID` (archive → sign with Developer ID → notarize → staple).
+Releases: `scripts/release.sh` builds the universal app, signs it with the release identity ("Wave Release
+Signing", which names no one, so installs keep their permissions across updates), and lays out the installer
+with `dmgbuild` (`pip install dmgbuild`; window art in `App/Support/dmg/`). It writes the DMG, a ZIP and
+`SHA256SUMS.txt` to `release/`.
