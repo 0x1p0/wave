@@ -276,7 +276,7 @@ public final class SonarEngine: @unchecked Sendable {
             lastVolumeCheck = now
             refreshLevel(force: false)
         }
-        if now - lastIdleCheck >= 0.05, let idle = idleMonitor?.idleSeconds() {
+        if now - lastIdleCheck >= 0.05, let idle = idleMonitor?.activeSeconds() {
             lastIdleCheck = now
             inputIdle = idle
             let t = pipeline.time - idle

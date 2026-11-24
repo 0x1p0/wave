@@ -133,13 +133,15 @@ public final class GesturePipeline {
 
     /// When tone `band`'s echo last turned from toward to away within 0.3 s of `t0` (the crossing nearest to it),
     /// using looser thresholds than a full gesture: both sides above the off level and 2 dB apart.
-    func turnaround(band: Int, around t0: Double) -> Double? {
+    func turnaround(band: Int, around t0: Double, awayFirst: Bool = false) -> Double? {
         guard history.indices.contains(band) else { return nil }
         let off = detectorConfig.effectiveOffDB
         var lastToward: Double?
         var peakToward: Float = 0
         var best: Double?
-        for f in history[band] where abs(f.time - t0) <= 0.3 {
+        for raw in history[band] where abs(raw.time - t0) <= 0.3 {
+            // For a pull the first phase is away: swap so the same search finds away → toward.
+            let f = awayFirst ? (time: raw.time, toward: raw.away, away: raw.toward) : raw
             if f.toward >= off && f.toward - f.away >= 2 {
                 lastToward = f.time
                 peakToward = max(peakToward, f.toward)
@@ -152,6 +154,17 @@ public final class GesturePipeline {
             }
         }
         return best
+    }
+
+    /// Whether the other tone turned from away to toward within a frame of the pull's own turn (both measured
+    /// the same way).
+    private func pullSeenByBothTones(_ pull: GestureEvent) -> Bool {
+        guard let rev = pull.reversal else { return false }
+        let mine = turnaround(band: strongestBand, around: rev, awayFirst: true) ?? rev
+        return bands.indices.filter { $0 != strongestBand }.allSatisfy { other in
+            guard let theirs = turnaround(band: other, around: mine, awayFirst: true) else { return false }
+            return abs(theirs - mine) <= fusion.config.pushMaxLag
+        }
     }
 
     /// Keyboard/trackpad input happened at stream time `t`. Feed in time order.
@@ -220,7 +233,12 @@ public final class GesturePipeline {
             // Hover and grab follow the strongest (lowest-frequency) tone only: averaging in a weaker tone
             // just adds noise. Pulls come from the same tone.
             let strongest = features[strongestBand]
-            if let pull = pullDetector.process(strongest), interaction.config.pullEnabled || interaction.isEngaged {
+            if var pull = pullDetector.process(strongest), interaction.config.pullEnabled || interaction.isEngaged {
+                if pull.isAccepted && layout.isStereo && !pullSeenByBothTones(pull) {
+                    // A pull comes straight at the laptop, so both tones turn around together; a swipe's
+                    // back-and-forth on one tone doesn't.
+                    pull.outcome = .unclear
+                }
                 if pull.isAccepted {
                     pendingPull = (pull, t + detectorConfig.maxReversalGap + detectorConfig.endHold + 0.05)
                 } else {
@@ -293,7 +311,7 @@ public final class GesturePipeline {
         if layout.isStereo {
             if event.isAccepted && (event.kind == .swipeLeft || event.kind == .swipeRight) {
                 swipeStreakUntil = event.end + fusion.config.swipeStreak
-            } else if event.kind == .push, event.end < swipeStreakUntil,
+            } else if event.kind == .push || event.kind == .pull, event.end < swipeStreakUntil,
                       event.isAccepted || (event.outcome == .oneSided && max(event.towardPeakDB, event.awayPeakDB) >= 12) {
                 // In a run of swipes, a push-shaped motion without a clear left/right timing is a swipe that passed
                 // the middle (or one only one tone caught). It isn't a push, and it keeps the run going.

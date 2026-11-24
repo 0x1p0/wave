@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import IOKit
 
 /// Time since the last keyboard/trackpad/mouse event, from IOHIDSystem's HIDIdleTime.
@@ -14,7 +15,17 @@ public final class InputIdleMonitor {
         if service != 0 { IOObjectRelease(service) }
     }
 
-    /// Seconds since the last HID input, or nil if unavailable.
+    /// Seconds since you last typed, clicked or scrolled. Plain pointer movement doesn't count: a hand resting
+    /// on the trackpad nudges the pointer constantly, and treating that as "busy" blocked most gestures made
+    /// with the other hand. Falls back to all input (HIDIdleTime) if the per-type times aren't available.
+    public func activeSeconds() -> Double? {
+        let types: [CGEventType] = [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        let times = types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+            .filter { $0.isFinite && $0 >= 0 }
+        return times.min() ?? idleSeconds()
+    }
+
+    /// Seconds since the last HID input of any kind (including pointer movement), or nil if unavailable.
     public func idleSeconds() -> Double? {
         guard service != 0,
               let value = IORegistryEntryCreateCFProperty(service, "HIDIdleTime" as CFString, kCFAllocatorDefault, 0)?
