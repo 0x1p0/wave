@@ -86,6 +86,24 @@ struct SwipeTests {
         for lag in [-0.010, 0.0, 0.010, 0.025] { #expect(c.classify(lag: lag, speed: 1.0) == .push) }
     }
 
+    @Test func sidewaysMotionIsNotAPush() {
+        // Half a swipe caught by one tone only, or both tones at once but barely moving toward the screen:
+        // neither may play/pause.
+        let fusion = GestureFusion()
+        func e(_ rev: Double, speed: Float) -> GestureEvent {
+            GestureEvent(kind: .push, outcome: .accepted, pilotHz: 1, start: rev - 0.2, end: rev + 0.2, confidence: 0.5,
+                         towardPeakDB: 18, awayPeakDB: 18, towardPeakVelocity: speed, awayPeakVelocity: -speed,
+                         maxReferenceDB: 0, reversal: rev)
+        }
+        #expect(fusion.add(e(1.0, speed: 0.4), band: 0).isEmpty)
+        #expect(fusion.flush(now: 1.6).first?.outcome == .oneSided)
+        #expect(fusion.add(e(3.0, speed: 0.4), band: 0).isEmpty)
+        #expect(fusion.add(e(3.01, speed: 0.4), band: 1).first?.outcome == .sideways)
+        // A real push (fast toward the screen) still counts either way.
+        #expect(fusion.add(e(5.0, speed: 1.0), band: 0).isEmpty)
+        #expect(fusion.flush(now: 5.6).first?.isAccepted == true)
+    }
+
     @Test func swipeHalvesThatWereTooFastStillPair() {
         // Sideways motion gives each tone a short blip that alone is "too fast"; together they're a swipe.
         let fusion = GestureFusion()

@@ -160,10 +160,14 @@ final class AppModel {
                 return nil
             }
         }()
-        if reason != gateReason { gateReason = reason }
+        if reason != gateReason {
+            gateReason = reason
+            DetectionLog.shared.write(reason.map { "PAUSED: \($0)" } ?? "LISTENING")
+        }
         let settings = modeSettings ?? prefs.engineSettings
         if reason == nil {
             if !engineRunning {
+                DetectionLog.shared.write("ENGINE START  \(settings.layout.description)")
                 engineRunning = true
                 runningSettings = settings
                 engine.start(settings)
@@ -207,6 +211,7 @@ final class AppModel {
     // MARK: Hold & slide (volume / brightness) and grab
 
     func handleControl(_ control: ControlEvent) {
+        DetectionLog.shared.write("HOVER \(control)")
         let targets = prefs.dialEnabled ? prefs.dialTargets : []
         switch control {
         case .ready(let i), .targetChanged(let i):
@@ -254,7 +259,10 @@ final class AppModel {
     private func handle(_ e: GestureEvent) {
         recentEvents.insert(e, at: 0)
         if recentEvents.count > 50 { recentEvents.removeLast() }
-        guard e.isAccepted, mode == .normal || mode == .debugWindow else { return }
+        let acts = e.isAccepted && (mode == .normal || mode == .debugWindow)
+        DetectionLog.shared.write(e.summary + (acts ? "  → \(prefs.mapping[e.kind].title)" : "")
+                                  + (mode == .normal ? "" : "  [\(mode)]"))
+        guard acts else { return }
         perform(e.kind)
     }
 

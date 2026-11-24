@@ -40,6 +40,10 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// mostly sideways (radial speed 0.3–0.65 m/s measured), pushes are not (0.75–1.3 m/s).
     public var softSwipeLag: Double = 0.012
     public var lateralSpeed: Float = 0.7
+    /// A push comes at the screen: measured 0.76–1.25 m/s toward it, swipes 0.33–0.75. Two-tone motion with no
+    /// clear left/right timing that is slower than this toward the screen is sideways, not a push (it was
+    /// playing/pausing during swipes).
+    public var minPushSpeed: Float = 0.55
     /// The two speakers' events must reverse within this of each other to be the same gesture.
     public var maxPairGap: Double = 0.3
     /// How long to wait for the other speaker before giving up on a one-sided event.
@@ -68,6 +72,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         invertSwipeDirection = v(.invertSwipeDirection, invertSwipeDirection)
         oneSidedPushDB = v(.oneSidedPushDB, oneSidedPushDB)
         swipeMinPeakDB = v(.swipeMinPeakDB, swipeMinPeakDB)
+        minPushSpeed = v(.minPushSpeed, minPushSpeed)
         // Settings saved before lagCenter existed measured the lag around 0 with a wider cut-off (45 ms),
         // which turned right→left swipes into pushes. Use the measured defaults instead.
         if !c.contains(.lagCenter) {
@@ -78,6 +83,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
+        case minPushSpeed
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.
@@ -160,7 +166,7 @@ public final class GestureFusion {
         e.confidence = (left.confidence + right.confidence) / 2
         if kind == .push {
             guard anyAccepted else { return nil }
-            e.outcome = .accepted
+            e.outcome = speed >= config.minPushSpeed ? .accepted : .sideways
         } else {
             // Both tones saw a toward → away blip, one after the other: the hand crossed. Its echo just has to be clear.
             guard anyAccepted || (e.towardPeakDB >= config.swipeMinPeakDB && min(left.awayPeakDB, right.awayPeakDB) > 0) else { return nil }
@@ -175,8 +181,10 @@ public final class GestureFusion {
     private func unpaired(_ e: GestureEvent) -> GestureEvent {
         guard e.isAccepted else { return e }
         var r = e
-        if min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB {
-            r.kind = .push  // strong and clearly push-shaped: don't lose it because the other tone was weak
+        if min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB && e.towardPeakVelocity >= config.lateralSpeed {
+            // Strong, clearly push-shaped and coming at the screen: don't lose it because the other tone was
+            // weak. A slow one is far more likely half a swipe that only one tone caught.
+            r.kind = .push
         } else {
             r.outcome = .oneSided
         }

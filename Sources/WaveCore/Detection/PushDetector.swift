@@ -20,6 +20,8 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         case weak = "too weak"
         case noReturn = "no return movement"
         case oneSided = "seen by one speaker only"
+        /// Two tones: no clear left/right timing, but too little motion toward the screen for a push.
+        case sideways = "sideways, not a push"
     }
 
     public var id = UUID()
