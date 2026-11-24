@@ -41,6 +41,8 @@ final class DemoSession {
     ]
 
     enum Phase: Equatable {
+        /// Waiting for the user to start their screen recording and click Start.
+        case waitingForStart
         case starting(String)
         case getReady(step: Int, remaining: Int)
         case running(step: Int)
@@ -71,6 +73,13 @@ final class DemoSession {
     @ObservationIgnored private var currentStep: Int?
     @ObservationIgnored private var lastPhase: InteractionDetector.Phase = .idle
     @ObservationIgnored private var relaunchWave: URL?
+    @ObservationIgnored private var startContinuation: CheckedContinuation<Void, Never>?
+
+    /// Called by the Start button.
+    func begin() {
+        startContinuation?.resume()
+        startContinuation = nil
+    }
 
     var sessionTime: Double { Date().timeIntervalSince(clockStart) }
     @ObservationIgnored private var finishedCleanly = false
@@ -113,13 +122,16 @@ final class DemoSession {
         var settings = EngineSettings()
         engine.start(settings)
 
-        for n in stride(from: 5, through: 1, by: -1) {
-            phase = .starting("Starting in \(n)… get your screen recording going")
+        // Wait until the user has their screen recording running and clicks Start.
+        phase = .waitingForStart
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in startContinuation = c }
+        for n in stride(from: 3, through: 1, by: -1) {
+            phase = .starting("Hands in your lap… \(n)")
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
         clockStart = Date()
-        if cameraOn { camera.record(to: directory.appendingPathComponent("camera.mov")) }
-        log.cameraFile = cameraOn ? "camera.mov" : nil
+        if cameraOn { camera.snapshot(to: directory.appendingPathComponent("camera"), clock: clockStart) }
+        log.cameraFile = cameraOn ? "camera/<seconds>.jpg" : nil
         log.started = Date()
 
         for (i, step) in Self.steps.enumerated() {

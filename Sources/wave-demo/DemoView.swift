@@ -43,6 +43,20 @@ struct DemoView: View {
 
     @ViewBuilder private var header: some View {
         switch session.phase {
+        case .waitingForStart:
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Ready when you are").font(.system(size: 40, weight: .bold))
+                Text("1. Start your screen recording.   2. Click Start.   Then follow the big instructions — about 3 minutes, no typing.")
+                    .font(.title2)
+                Button {
+                    session.begin()
+                } label: {
+                    Text("Start").font(.system(size: 26, weight: .bold)).padding(.horizontal, 40).padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.extraLarge)
+                .keyboardShortcut(.defaultAction)
+            }
         case .starting(let text):
             Text(text).font(.system(size: 34, weight: .bold))
         case .getReady(let i, let remaining):
