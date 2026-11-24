@@ -205,7 +205,38 @@ final class AppModel {
         if out.speakerMuted != speakerMuted { speakerMuted = out.speakerMuted }
         frameSink?(out)
         for e in out.events { handle(e) }
-        if mode == .normal { out.controls.forEach(handleControl) }
+        if mode == .normal {
+            out.controls.forEach(handleControl)
+            followHoverPhase(out.interactionPhase)
+        }
+    }
+
+    // MARK: "Hold still…" feedback
+
+    @ObservationIgnored private var hoverPhase: InteractionDetector.Phase = .idle
+    @ObservationIgnored private var holdingSince: Date?
+    @ObservationIgnored private var holdHUDShown = false
+
+    /// While Wave waits for a raised hand to settle, a ring fills up so you can see it noticed you. It only
+    /// appears after 0.35 s of stillness: shorter pauses (between swipes) shouldn't flash it.
+    private func followHoverPhase(_ phase: InteractionDetector.Phase) {
+        defer { hoverPhase = phase }
+        guard prefs.showHUD, prefs.dialEnabled || prefs.grabEnabled else { return }
+        if phase == .holding {
+            if hoverPhase != .holding { holdingSince = Date() }
+            guard !holdHUDShown, let since = holdingSince, Date().timeIntervalSince(since) >= 0.35, !interactionActive else { return }
+            holdHUDShown = true
+            let hold = (prefs.engineSettings.interaction.holdDelay) - Date().timeIntervalSince(since)
+            hud.show(symbol: "hand.raised.fill", title: "Hold still…",
+                     subtitle: prefs.dialEnabled ? "Opening \(prefs.dialTargets.first?.title.lowercased() ?? "volume")" : "Then make a fist",
+                     tint: .pink, holdUntil: Date().addingTimeInterval(max(0.1, hold)), sticky: true)
+        } else {
+            holdingSince = nil
+            if holdHUDShown {
+                holdHUDShown = false
+                if phase != .ready && !interactionActive { hud.hide(after: 0.15) }
+            }
+        }
     }
 
     // MARK: Hold & slide (volume / brightness) and grab
@@ -411,13 +442,13 @@ final class AppModel {
         lastGesture = (.swipeLeft, prefs.mapping.swipeLeft, Date().addingTimeInterval(-2))
     }
 
-    enum SettingsTab: Hashable { case general, gestures, sound, calibration, advanced }
-    /// Which Settings tab is showing (the menu's "Change…" jumps to Gestures).
-    var settingsTab: SettingsTab = .general
+    enum SettingsTab: Hashable { case gestures, hover, general, sound, calibration, advanced }
+    /// Which Settings page is showing (the menu's "Change…" jumps to Gestures).
+    var settingsTab: SettingsTab = .gestures
 
     func showSettings(tab: SettingsTab? = nil) {
         if let tab { settingsTab = tab }
-        windows.show(.settings, title: "Wave Settings", size: NSSize(width: 660, height: 600)) {
+        windows.show(.settings, title: "Wave Settings", size: NSSize(width: 880, height: 680), resizable: true) {
             SettingsView(model: self)
         }
     }

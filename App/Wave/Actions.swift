@@ -43,12 +43,15 @@ enum MediaKey: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Built-in actions: window, desktop, volume and brightness.
+/// Built-in actions: windows, desktops, apps, tabs and pages, slides, volume and brightness.
 enum SystemAction: String, Codable, CaseIterable, Identifiable {
     case minimizeWindow, closeWindow, hideApp
     case nextDesktop, previousDesktop, missionControl, appWindows
     case volumeUp, volumeDown, brightnessUp, brightnessDown
     case lockScreen
+    // Browsers, documents and apps
+    case nextTab, previousTab, back, forward, reopenTab, pageDown, pageUp, zoomIn, zoomOut, fullScreen
+    case nextSlide, previousSlide, switchApp, spotlight, screenshot, showDesktop
 
     var id: String { rawValue }
 
@@ -66,6 +69,22 @@ enum SystemAction: String, Codable, CaseIterable, Identifiable {
         case .brightnessUp: return "Brightness up"
         case .brightnessDown: return "Brightness down"
         case .lockScreen: return "Lock screen"
+        case .nextTab: return "Next tab"
+        case .previousTab: return "Previous tab"
+        case .back: return "Back"
+        case .forward: return "Forward"
+        case .reopenTab: return "Reopen closed tab"
+        case .pageDown: return "Page down"
+        case .pageUp: return "Page up"
+        case .zoomIn: return "Zoom in"
+        case .zoomOut: return "Zoom out"
+        case .fullScreen: return "Full screen"
+        case .nextSlide: return "Next slide / item"
+        case .previousSlide: return "Previous slide / item"
+        case .switchApp: return "Switch to last app"
+        case .spotlight: return "Spotlight"
+        case .screenshot: return "Screenshot"
+        case .showDesktop: return "Show desktop"
         }
     }
 
@@ -83,12 +102,29 @@ enum SystemAction: String, Codable, CaseIterable, Identifiable {
         case .brightnessUp: return "sun.max.fill"
         case .brightnessDown: return "sun.min.fill"
         case .lockScreen: return "lock.fill"
+        case .nextTab: return "arrow.right.square"
+        case .previousTab: return "arrow.left.square"
+        case .back: return "chevron.backward"
+        case .forward: return "chevron.forward"
+        case .reopenTab: return "arrow.uturn.backward.square"
+        case .pageDown: return "arrow.down.doc"
+        case .pageUp: return "arrow.up.doc"
+        case .zoomIn: return "plus.magnifyingglass"
+        case .zoomOut: return "minus.magnifyingglass"
+        case .fullScreen: return "arrow.up.left.and.arrow.down.right"
+        case .nextSlide: return "forward.frame"
+        case .previousSlide: return "backward.frame"
+        case .switchApp: return "arrow.left.arrow.right.square"
+        case .spotlight: return "magnifyingglass"
+        case .screenshot: return "camera.viewfinder"
+        case .showDesktop: return "menubar.dock.rectangle"
         }
     }
 
     /// The keystroke for keyboard-driven actions (sent to the system / frontmost app).
     var keyCombo: KeyCombo? {
         let cmd = NSEvent.ModifierFlags.command.rawValue, ctrl = NSEvent.ModifierFlags.control.rawValue
+        let shift = NSEvent.ModifierFlags.shift.rawValue
         switch self {
         case .minimizeWindow: return KeyCombo(keyCode: UInt16(kVK_ANSI_M), modifiers: cmd, display: "⌘M")
         case .closeWindow: return KeyCombo(keyCode: UInt16(kVK_ANSI_W), modifiers: cmd, display: "⌘W")
@@ -98,6 +134,22 @@ enum SystemAction: String, Codable, CaseIterable, Identifiable {
         case .missionControl: return KeyCombo(keyCode: UInt16(kVK_UpArrow), modifiers: ctrl, display: "⌃↑")
         case .appWindows: return KeyCombo(keyCode: UInt16(kVK_DownArrow), modifiers: ctrl, display: "⌃↓")
         case .lockScreen: return KeyCombo(keyCode: UInt16(kVK_ANSI_Q), modifiers: ctrl | cmd, display: "⌃⌘Q")
+        case .nextTab: return KeyCombo(keyCode: UInt16(kVK_Tab), modifiers: ctrl, display: "⌃⇥")
+        case .previousTab: return KeyCombo(keyCode: UInt16(kVK_Tab), modifiers: ctrl | shift, display: "⌃⇧⇥")
+        case .back: return KeyCombo(keyCode: UInt16(kVK_ANSI_LeftBracket), modifiers: cmd, display: "⌘[")
+        case .forward: return KeyCombo(keyCode: UInt16(kVK_ANSI_RightBracket), modifiers: cmd, display: "⌘]")
+        case .reopenTab: return KeyCombo(keyCode: UInt16(kVK_ANSI_T), modifiers: cmd | shift, display: "⌘⇧T")
+        case .pageDown: return KeyCombo(keyCode: UInt16(kVK_PageDown), modifiers: 0, display: "⇟")
+        case .pageUp: return KeyCombo(keyCode: UInt16(kVK_PageUp), modifiers: 0, display: "⇞")
+        case .zoomIn: return KeyCombo(keyCode: UInt16(kVK_ANSI_Equal), modifiers: cmd, display: "⌘+")
+        case .zoomOut: return KeyCombo(keyCode: UInt16(kVK_ANSI_Minus), modifiers: cmd, display: "⌘−")
+        case .fullScreen: return KeyCombo(keyCode: UInt16(kVK_ANSI_F), modifiers: ctrl | cmd, display: "⌃⌘F")
+        case .nextSlide: return KeyCombo(keyCode: UInt16(kVK_RightArrow), modifiers: 0, display: "→")
+        case .previousSlide: return KeyCombo(keyCode: UInt16(kVK_LeftArrow), modifiers: 0, display: "←")
+        case .switchApp: return KeyCombo(keyCode: UInt16(kVK_Tab), modifiers: cmd, display: "⌘⇥")
+        case .spotlight: return KeyCombo(keyCode: UInt16(kVK_Space), modifiers: cmd, display: "⌘Space")
+        case .screenshot: return KeyCombo(keyCode: UInt16(kVK_ANSI_3), modifiers: cmd | shift, display: "⌘⇧3")
+        case .showDesktop: return KeyCombo(keyCode: UInt16(kVK_F11), modifiers: 0, display: "F11")
         case .volumeUp, .volumeDown, .brightnessUp, .brightnessDown: return nil
         }
     }

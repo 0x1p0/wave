@@ -23,14 +23,15 @@ enum Snapshots {
         let tutorial = TutorialModel(lessons: [.sonar, .push, .pull, .hover, .grab, .swipe], dialTargetNames: ["Volume", "Brightness"])
         items.append(("tutorial", AnyView(TutorialView(model: tutorial)), NSSize(width: 940, height: 680)))
         items.append(("onboarding", AnyView(OnboardingView(model: model)), NSSize(width: 620, height: 520)))
-        for (name, tab) in [("general", AppModel.SettingsTab.general), ("gestures", .gestures), ("advanced", .advanced)] {
-            let m = model
-            items.append(("settings-\(name)", AnyView(SettingsTabSnapshot(model: m, tab: tab)), NSSize(width: 660, height: 900)))
-        }
         for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             for (name, view, size) in items {
                 render(view, size: size, appearance: NSAppearance(named: appearance)!,
                        to: dir.appendingPathComponent("\(name)-\(suffix).png"))
+            }
+            for (name, tab) in [("gestures", AppModel.SettingsTab.gestures), ("hover", .hover), ("general", .general)] {
+                model.settingsTab = tab
+                render(AnyView(SettingsView(model: model)), size: NSSize(width: 880, height: 1150),
+                       appearance: NSAppearance(named: appearance)!, to: dir.appendingPathComponent("settings-\(name)-\(suffix).png"))
             }
         }
     }
@@ -50,20 +51,5 @@ enum Snapshots {
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
         window.orderOut(nil)
-    }
-}
-
-/// One Settings tab on its own, for a snapshot.
-private struct SettingsTabSnapshot: View {
-    let model: AppModel
-    let tab: AppModel.SettingsTab
-
-    var body: some View {
-        switch tab {
-        case .general: GeneralSettings(model: model)
-        case .gestures: GestureSettings(model: model)
-        case .advanced: AdvancedSettings(model: model)
-        default: EmptyView()
-        }
     }
 }

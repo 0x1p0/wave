@@ -54,8 +54,13 @@ struct ReplayCommand {
         if options.noHover { interaction.dialEnabled = false }
         if options.noPull { interaction.pullEnabled = false }
         if options.noGrab { interaction.grabEnabled = false }
+        var lastPhase = InteractionDetector.Phase.idle
         let result = Replay.run(recording, pilots: pilots, detector: detector, interaction: interaction) { out in
             let t = out.frames.last?.time ?? 0
+            if out.interactionPhase != lastPhase {
+                lastPhase = out.interactionPhase
+                if lastPhase == .holding { controlLines.append(String(format: "%8.2f s  ✋ holding…", t)) }
+            }
             for c in out.controls {
                 switch c {
                 case .ready(let i): dial = 0; controlLines.append(String(format: "%8.2f s  ✋ ready (target %d)", t, i))

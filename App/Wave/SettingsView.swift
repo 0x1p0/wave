@@ -7,15 +7,115 @@ struct SettingsView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        TabView(selection: $model.settingsTab) {
-            GeneralSettings(model: model).tabItem { Label("General", systemImage: "gearshape") }.tag(AppModel.SettingsTab.general)
-            GestureSettings(model: model).tabItem { Label("Gestures", systemImage: "hand.wave") }.tag(AppModel.SettingsTab.gestures)
-            SoundSettings(model: model).tabItem { Label("Sound", systemImage: "speaker.wave.2") }.tag(AppModel.SettingsTab.sound)
-            CalibrationSettings(model: model).tabItem { Label("Calibration", systemImage: "tuningfork") }.tag(AppModel.SettingsTab.calibration)
-            AdvancedSettings(model: model).tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }.tag(AppModel.SettingsTab.advanced)
+        HStack(spacing: 0) {
+            SettingsSidebar(model: model)
+                .frame(width: 210)
+            Divider()
+            Group {
+                switch model.settingsTab {
+                case .gestures: GesturesPage(model: model)
+                case .hover: HoverPage(model: model)
+                case .general: SettingsPage("General", "How Wave runs on your Mac") { GeneralSettings(model: model) }
+                case .sound: SettingsPage("Sound", "The tone Wave plays and the speakers it uses") { SoundSettings(model: model) }
+                case .calibration: SettingsPage("Calibration", "Tune detection to your room and your hand") { CalibrationSettings(model: model) }
+                case .advanced: SettingsPage("Advanced", "Logs, debugging and privacy") { AdvancedSettings(model: model) }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(16)
-        .frame(minWidth: 640, minHeight: 560)
+        .frame(minWidth: 860, minHeight: 620)
+    }
+}
+
+/// Sidebar like System Settings: Wave's status on top, then the pages.
+struct SettingsSidebar: View {
+    @Bindable var model: AppModel
+
+    private let items: [(AppModel.SettingsTab, String, String, Color)] = [
+        (.gestures, "Gestures", "hand.wave.fill", .blue),
+        (.hover, "Volume & brightness", "dial.medium.fill", .pink),
+        (.general, "General", "gearshape.fill", .gray),
+        (.sound, "Sound", "speaker.wave.2.fill", .orange),
+        (.calibration, "Calibration", "tuningfork", .purple),
+        (.advanced, "Advanced", "wrench.and.screwdriver.fill", .gray),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                GestureBadge(symbol: "hand.wave.fill", tint: .blue, size: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Wave").font(.system(size: 15, weight: .semibold))
+                    HStack(spacing: 5) {
+                        Circle().fill(model.health == .listening ? Color.green : .secondary).frame(width: 7, height: 7)
+                        Text(model.health == .listening ? "Listening" : (model.health == .off ? "Off" : "Paused"))
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Toggle("", isOn: $model.prefs.enabled).toggleStyle(.switch).labelsHidden().controlSize(.mini)
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 16)
+            .padding(.bottom, 14)
+            ForEach(items, id: \.0) { item in
+                let selected = model.settingsTab == item.0
+                Button { model.settingsTab = item.0 } label: {
+                    HStack(spacing: 9) {
+                        GestureBadge(symbol: item.2, tint: item.3, size: 22)
+                        Text(item.1).font(.system(size: 13))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+            Button { model.showTutorial() } label: {
+                Label("Practice gestures", systemImage: "graduationcap.fill").frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .padding(10)
+        }
+        .padding(.horizontal, 8)
+        .background(.background.secondary)
+    }
+}
+
+/// A page title and subtitle above a page's content.
+struct PageHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.system(size: 22, weight: .bold))
+            Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A grouped-form page with a header.
+struct SettingsPage<Content: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder let content: Content
+
+    init(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PageHeader(title: title, subtitle: subtitle).padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 4)
+            content
+        }
     }
 }
 
@@ -115,98 +215,348 @@ struct PermissionRow: View {
 
 // MARK: - Gestures
 
-struct GestureSettings: View {
+struct GesturesPage: View {
     @Bindable var model: AppModel
     @State private var shortcuts: [String] = []
 
     var body: some View {
-        Form {
-            Section {
-                GestureRow(kind: .push, action: $model.prefs.mapping.push, shortcuts: shortcuts) { model.perform(.push) }
-                GestureRow(kind: .pull, action: $model.prefs.mapping.pull, shortcuts: shortcuts) { model.perform(.pull) }
-            } header: {
-                HStack {
-                    Text("Gestures")
-                    Spacer()
-                    Button("Practice them…") { model.showTutorial() }.buttonStyle(.link).font(.callout)
-                }
-            }
-
-            Section("Swipes") {
-                Toggle(isOn: $model.prefs.swipesEnabled) {
-                    SettingLabel("Swipe left and right", "Plays a separate tone on each speaker. Calibrate after turning this on.")
-                }
-                if model.prefs.swipesEnabled {
-                    GestureRow(kind: .swipeLeft, action: $model.prefs.mapping.swipeLeft, shortcuts: shortcuts) { model.perform(.swipeLeft) }
-                    GestureRow(kind: .swipeRight, action: $model.prefs.mapping.swipeRight, shortcuts: shortcuts) { model.perform(.swipeRight) }
-                    LabeledContent("Quick setup") {
-                        HStack(spacing: 6) {
-                            Button("Desktops") {
-                                model.prefs.mapping.swipeLeft = .system(.nextDesktop)
-                                model.prefs.mapping.swipeRight = .system(.previousDesktop)
-                            }
-                            .help("Like a trackpad: swiping left brings in the desktop on the right")
-                            Button("Tracks") {
-                                model.prefs.mapping.swipeLeft = .media(.previous)
-                                model.prefs.mapping.swipeRight = .media(.next)
-                            }
-                            Button("YouTube ±10 s") {
-                                model.prefs.mapping.swipeLeft = .key(.youTubeBack10)
-                                model.prefs.mapping.swipeRight = .key(.youTubeForward10)
-                            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                PageHeader(title: "Gestures", subtitle: "Wave sees your hand with sound from the speakers. Pick what each move does.")
+                LiveStrip(model: model)
+                presets
+                section("Your gestures") {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                        GestureCard(kind: .push, action: $model.prefs.mapping.push, shortcuts: shortcuts) { model.perform(.push) }
+                        if model.prefs.swipesEnabled {
+                            GestureCard(kind: .swipeLeft, action: $model.prefs.mapping.swipeLeft, shortcuts: shortcuts) { model.perform(.swipeLeft) }
+                            GestureCard(kind: .swipeRight, action: $model.prefs.mapping.swipeRight, shortcuts: shortcuts) { model.perform(.swipeRight) }
                         }
-                        .controlSize(.small)
-                    }
-                    if [model.prefs.mapping.swipeLeft, model.prefs.mapping.swipeRight].contains(where: { $0 == .system(.nextDesktop) || $0 == .system(.previousDesktop) }) {
-                        Text("Desktop switching uses ⌃← and ⌃→ — keep them on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("Fist") {
-                Toggle(isOn: $model.prefs.grabEnabled) {
-                    SettingLabel("Close your hand into a fist (experimental)",
-                                 "Hold your open hand up really still until ✋ appears, then close it quickly and firmly. It only counts while ✋ is showing, so taps and typing can't set it off — but it misses some fists.")
-                }
-                if model.prefs.grabEnabled {
-                    GestureRow(kind: .grab, action: $model.prefs.mapping.grab, shortcuts: shortcuts) { model.perform(.grab) }
-                }
-            }
-
-            Section("Hover controls") {
-                Toggle(isOn: $model.prefs.dialEnabled) {
-                    SettingLabel("Volume and brightness by hovering",
-                                 "Push your hand toward the screen and keep it there, really still, until ✋ appears. Then quick pushes for ＋ and quick pulls for −. Hold still to switch control; move away to finish.")
-                }
-                if model.prefs.dialEnabled {
-                    Picker("Controls", selection: $model.prefs.dialTargets) {
-                        Text("Volume, then brightness").tag([DialTarget.volume, .brightness])
-                        Text("Brightness, then volume").tag([DialTarget.brightness, .volume])
-                        Text("Volume only").tag([DialTarget.volume])
-                        Text("Brightness only").tag([DialTarget.brightness])
-                    }
-                    Picker("Each push or pull changes it by", selection: $model.prefs.dialStep) {
-                        Text("5 %").tag(5.0)
-                        Text("10 %").tag(10.0)
-                        Text("20 %").tag(20.0)
-                    }
-                    if !BrightnessController.isAvailable {
-                        Text("Smooth brightness isn't available on this Mac; brightness changes in key-sized steps.")
-                            .font(.caption).foregroundStyle(.orange)
+                        GestureCard(kind: .pull, action: $model.prefs.mapping.pull, shortcuts: shortcuts) { model.perform(.pull) }
+                        if model.prefs.grabEnabled {
+                            GestureCard(kind: .grab, action: $model.prefs.mapping.grab, shortcuts: shortcuts) { model.perform(.grab) }
+                        }
                     }
                 }
-            }
-
-            if !model.accessibilityTrusted {
-                Section {
-                    PermissionRow(title: "Accessibility", detail: "Media keys and keyboard shortcuts need it",
+                section("More gestures") {
+                    VStack(spacing: 0) {
+                        ToggleRow(title: "Swipe left and right", detail: "Plays a separate tone on each speaker so Wave can tell left from right.",
+                                  symbol: "hand.point.left.fill", tint: .teal, isOn: $model.prefs.swipesEnabled)
+                        Divider().padding(.leading, 46)
+                        ToggleRow(title: "Fist (experimental)",
+                                  detail: "Hold your hand up until ✋ appears, then close it quickly. Misses some fists; taps and typing can't set it off.",
+                                  symbol: "hand.raised.fingers.spread.fill", tint: .orange, isOn: $model.prefs.grabEnabled)
+                    }
+                    .padding(.vertical, 4)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                if usesDesktops {
+                    Label("Desktop switching uses ⌃← and ⌃→. Keep them on in System Settings → Keyboard → Keyboard Shortcuts → Mission Control.",
+                          systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !model.accessibilityTrusted {
+                    PermissionRow(title: "Accessibility", detail: "Needed to press media keys and shortcuts for you",
                                   granted: false, action: "Open Settings") { model.requestAccessibility() }
+                        .padding(12)
+                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(28)
+        }
+        .task { shortcuts = await ShortcutsRunner.list() }
+    }
+
+    private var usesDesktops: Bool {
+        let m = model.prefs.mapping
+        return [m.push, m.swipeLeft, m.swipeRight, m.pull].contains { $0 == .system(.nextDesktop) || $0 == .system(.previousDesktop) }
+    }
+
+    private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private var presets: some View {
+        section("One-click setups") {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                ForEach(GesturePreset.all) { preset in
+                    let on = preset.matches(model.prefs.mapping)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            preset.apply(to: &model.prefs.mapping)
+                            if !model.prefs.swipesEnabled { model.prefs.swipesEnabled = true }
+                        }
+                    } label: {
+                        HStack(spacing: 9) {
+                            Image(systemName: preset.symbol)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(on ? .white : .accentColor)
+                                .frame(width: 30, height: 30)
+                                .background(on ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.accentColor.opacity(0.12)),
+                                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(preset.title).font(.system(size: 12.5, weight: .semibold))
+                                Text(on ? "In use" : "Use this").font(.system(size: 11)).foregroundStyle(on ? Color.accentColor : .secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(9)
+                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(on ? Color.accentColor : .clear, lineWidth: 1.5))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(preset.detail)
                 }
             }
         }
-        .formStyle(.grouped)
-        .task { shortcuts = await ShortcutsRunner.list() }
+    }
+}
+
+/// What Wave just saw, live: flashes when a gesture is recognised, so you can test gestures right here.
+struct LiveStrip: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill((model.health == .listening ? Color.green : .secondary).opacity(0.18))
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(model.health == .listening ? .green : .secondary)
+                    .symbolEffect(.variableColor.iterative.reversing, isActive: model.health == .listening)
+            }
+            .frame(width: 34, height: 34)
+            if let last = model.lastGesture {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    let fresh = Date().timeIntervalSince(last.at) < 2
+                    HStack(spacing: 8) {
+                        GestureBadge(symbol: last.kind.symbol, tint: last.kind.tint, size: 24)
+                        Text(last.kind.title).font(.system(size: 13, weight: .semibold))
+                        Image(systemName: "arrow.right").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(last.action.title).font(.system(size: 13))
+                        Spacer()
+                        Text(last.at, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(fresh ? last.kind.tint.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .animation(.easeOut(duration: 0.3), value: fresh)
+                }
+                .id(last.at)
+            } else {
+                Text(model.health == .listening ? "Try a gesture: it shows up here." : "Wave isn't listening right now — \(model.statusText).")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(10)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// A gesture: a little animation of the move, how to do it, what it does, and a button to try the action.
+struct GestureCard: View {
+    let kind: GestureEvent.Kind
+    @Binding var action: GestureAction
+    let shortcuts: [String]
+    let test: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            GestureIllustration(kind: kind)
+                .frame(height: 92)
+                .frame(maxWidth: .infinity)
+                .background(kind.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(kind.title).font(.system(size: 14, weight: .semibold))
+                    Text(kind.howTo).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(action: test) { Label("Try", systemImage: "play.fill").labelStyle(.iconOnly) }
+                    .buttonStyle(.borderless)
+                    .disabled(action == .none)
+                    .help("Runs the action now, as if you'd made the gesture")
+            }
+            ActionMenu(action: $action, shortcuts: shortcuts)
+            if case .key(let combo) = action {
+                HStack {
+                    Text("Keys").font(.caption).foregroundStyle(.secondary)
+                    KeyRecorder(combo: Binding(get: { combo }, set: { action = .key($0) })).frame(height: 24)
+                }
+            }
+            if case .shortcut(let name) = action, shortcuts.isEmpty {
+                TextField("Shortcut name", text: Binding(get: { name }, set: { action = .shortcut($0) }))
+            }
+        }
+        .padding(12)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// Front view of the laptop and a hand doing the gesture, on a loop.
+struct GestureIllustration: View {
+    let kind: GestureEvent.Kind?
+    var hover = false
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let u = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.4) / 2.4
+            let p = pose(u)
+            ZStack {
+                // Laptop screen seen from the front.
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(.secondary.opacity(0.5), lineWidth: 2)
+                    .frame(width: 92, height: 58)
+                    .offset(y: -6)
+                Capsule().fill(.secondary.opacity(0.4)).frame(width: 112, height: 5).offset(y: 26)
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(tint.gradient)
+                    .scaleEffect(x: p.scale, y: p.scale * p.squash)
+                    .offset(x: p.x, y: -2)
+                    .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
+                if p.ring > 0 {
+                    Circle().stroke(tint.opacity(0.6), lineWidth: 2)
+                        .frame(width: 44 + 20 * p.ring, height: 44 + 20 * p.ring)
+                        .opacity(1 - p.ring)
+                        .offset(x: p.x, y: -2)
+                }
+            }
+        }
+    }
+
+    private var tint: Color { kind?.tint ?? .pink }
+
+    private struct Pose { var x: CGFloat = 0; var scale: CGFloat = 1; var squash: CGFloat = 1; var ring: Double = 0 }
+
+    private func bump(_ u: Double, _ a: Double, _ b: Double) -> Double {
+        guard u > a && u < b else { return 0 }
+        return 0.5 * (1 - cos(2 * Double.pi * (u - a) / (b - a)))
+    }
+
+    private func pose(_ u: Double) -> Pose {
+        var p = Pose()
+        if hover {
+            p.scale = 0.8 + 0.35 * min(1, u / 0.25)
+            if u > 0.3 && u < 0.6 { p.ring = (u - 0.3) / 0.3 }
+            p.scale += 0.18 * bump(u, 0.65, 0.85)
+            return p
+        }
+        switch kind {
+        case .push: p.scale = 0.8 + 0.6 * bump(u, 0.15, 0.6)
+        case .pull: p.scale = 1.3 - 0.55 * bump(u, 0.15, 0.6)
+        case .swipeLeft: p.x = CGFloat(60 - 120 * min(1, max(0, (u - 0.15) / 0.45))); p.scale = 1
+        case .swipeRight: p.x = CGFloat(-60 + 120 * min(1, max(0, (u - 0.15) / 0.45))); p.scale = 1
+        case .grab:
+            p.scale = 1.1
+            p.squash = u > 0.45 && u < 0.85 ? 0.55 : 1
+        case .none: break
+        }
+        return p
+    }
+}
+
+/// A switch with an icon, a title and a line of explanation.
+struct ToggleRow: View {
+    let title: String
+    let detail: String
+    let symbol: String
+    let tint: Color
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            GestureBadge(symbol: symbol, tint: tint, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13))
+                Text(detail).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Toggle("", isOn: $isOn).toggleStyle(.switch).labelsHidden()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+}
+
+// MARK: - Volume & brightness
+
+struct HoverPage: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                PageHeader(title: "Volume & brightness", subtitle: "Hold your hand up to the screen, then push or pull to change the level.")
+                HStack(alignment: .top, spacing: 18) {
+                    GestureIllustration(kind: nil, hover: true)
+                        .frame(width: 180, height: 130)
+                        .background(Color.pink.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 12) {
+                        step(1, "Push your open hand toward the screen and keep it there, about 20 cm away.",
+                             "Raising it from below doesn't count: Wave needs to see it come toward the screen.")
+                        step(2, "Hold it really still. A ring fills up, then ✋ appears.", nil)
+                        step(3, "Quick push = up, quick pull = down.",
+                             "Brisk, like play/pause. Gentle presses are too slow for the sonar to see.")
+                        step(4, "Hold still 3 s to switch to the other control; move away when you're done.", nil)
+                    }
+                }
+                VStack(spacing: 0) {
+                    ToggleRow(title: "Volume and brightness by hovering", detail: "Off: pushes and pulls always do their normal actions.",
+                              symbol: "dial.medium.fill", tint: .pink, isOn: $model.prefs.dialEnabled)
+                    if model.prefs.dialEnabled {
+                        Divider().padding(.leading, 46)
+                        HStack {
+                            Text("Controls").font(.system(size: 13))
+                            Spacer()
+                            Picker("", selection: $model.prefs.dialTargets) {
+                                Text("Volume, then brightness").tag([DialTarget.volume, .brightness])
+                                Text("Brightness, then volume").tag([DialTarget.brightness, .volume])
+                                Text("Volume only").tag([DialTarget.volume])
+                                Text("Brightness only").tag([DialTarget.brightness])
+                            }
+                            .labelsHidden().frame(width: 220)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        Divider().padding(.leading, 12)
+                        HStack {
+                            Text("Each push or pull changes it by").font(.system(size: 13))
+                            Spacer()
+                            Picker("", selection: $model.prefs.dialStep) {
+                                Text("5 %").tag(5.0)
+                                Text("10 %").tag(10.0)
+                                Text("20 %").tag(20.0)
+                            }
+                            .pickerStyle(.segmented).labelsHidden().frame(width: 180)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                    }
+                }
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if !BrightnessController.isAvailable {
+                    Label("Smooth brightness isn't available on this Mac; brightness changes in key-sized steps.", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button { model.showTutorial() } label: { Label("Practice it in the tutorial", systemImage: "graduationcap") }
+            }
+            .padding(28)
+        }
+    }
+
+    private func step(_ n: Int, _ text: String, _ note: String?) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(n)").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 22, height: 22).background(Color.pink.gradient, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                if let note { Text(note).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+        }
     }
 }
 
@@ -224,59 +574,19 @@ struct SettingLabel: View {
     }
 }
 
-/// One gesture: what it is, how to do it, what it does, and a button to try the action.
-struct GestureRow: View {
-    let kind: GestureEvent.Kind
-    @Binding var action: GestureAction
-    let shortcuts: [String]
-    let test: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                GestureBadge(symbol: kind.symbol, tint: kind.tint, size: 30)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(kind.title)
-                    Text(kind.howTo).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                ActionMenu(action: $action, shortcuts: shortcuts)
-                    .frame(width: 210)
-                Button(action: test) { Image(systemName: "play.fill") }
-                    .buttonStyle(.borderless)
-                    .disabled(action == .none)
-                    .help("Try it: runs the action now, as if you had made the gesture")
-            }
-            switch action {
-            case .key(let combo):
-                HStack {
-                    Spacer()
-                    Text("Keys sent to the front app").font(.caption).foregroundStyle(.secondary)
-                    KeyRecorder(combo: Binding(get: { combo }, set: { action = .key($0) }))
-                        .frame(width: 140, height: 24)
-                }
-            case .shortcut(let name) where shortcuts.isEmpty:
-                HStack {
-                    Spacer()
-                    TextField("Name of a shortcut in the Shortcuts app", text: Binding(get: { name }, set: { action = .shortcut($0) }))
-                        .frame(width: 300)
-                }
-            default:
-                EmptyView()
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-/// Every action in one menu, grouped: media, windows & desktops, volume & brightness, keys and Shortcuts.
+/// Every action in one menu, grouped.
 struct ActionMenu: View {
     @Binding var action: GestureAction
     let shortcuts: [String]
 
-    private static let windowActions: [SystemAction] = [.minimizeWindow, .closeWindow, .hideApp, .nextDesktop, .previousDesktop,
-                                                         .missionControl, .appWindows, .lockScreen]
-    private static let levelActions: [SystemAction] = [.volumeUp, .volumeDown, .brightnessUp, .brightnessDown]
+    private static let groups: [(String, [SystemAction])] = [
+        ("Windows and desktops", [.nextDesktop, .previousDesktop, .missionControl, .appWindows, .showDesktop, .minimizeWindow,
+                                  .closeWindow, .hideApp, .fullScreen, .switchApp]),
+        ("Browser and documents", [.nextTab, .previousTab, .back, .forward, .reopenTab, .pageDown, .pageUp, .zoomIn, .zoomOut]),
+        ("Presenting", [.nextSlide, .previousSlide]),
+        ("Volume and brightness", [.volumeUp, .volumeDown, .brightnessUp, .brightnessDown]),
+        ("System", [.spotlight, .screenshot, .lockScreen]),
+    ]
 
     var body: some View {
         Picker("", selection: $action) {
@@ -284,13 +594,12 @@ struct ActionMenu: View {
             Section("Media") {
                 ForEach(MediaKey.allCases) { Label($0.title, systemImage: $0.symbol).tag(GestureAction.media($0)) }
             }
-            Section("Windows and desktops") {
-                ForEach(Self.windowActions) { Label($0.title, systemImage: $0.symbol).tag(GestureAction.system($0)) }
+            ForEach(Self.groups, id: \.0) { group in
+                Section(group.0) {
+                    ForEach(group.1) { Label($0.title, systemImage: $0.symbol).tag(GestureAction.system($0)) }
+                }
             }
-            Section("Volume and brightness") {
-                ForEach(Self.levelActions) { Label($0.title, systemImage: $0.symbol).tag(GestureAction.system($0)) }
-            }
-            Section("Other") {
+            Section("Your own") {
                 Label("Keyboard shortcut…", systemImage: "keyboard").tag(keyTag)
                 ForEach(shortcutNames, id: \.self) { name in
                     Label("Shortcut “\(name)”", systemImage: "square.stack.3d.up.fill").tag(GestureAction.shortcut(name))
@@ -303,7 +612,6 @@ struct ActionMenu: View {
         .labelsHidden()
     }
 
-    /// The current keyboard shortcut if one is set, else Space (then recorded in the row).
     private var keyTag: GestureAction {
         if case .key = action { return action }
         return .key(.space)

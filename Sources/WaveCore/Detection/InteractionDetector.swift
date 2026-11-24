@@ -12,14 +12,14 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var dialTargets = 2
 
     /// After bringing the hand up, holding really still for this long → ready ✋.
-    public var holdDelay = 1.0
+    public var holdDelay = 0.8
     /// "Really still": both sidebands below this (dB). A deliberately held hand measured ≤ 3.6 dB; ordinary
     /// fidgeting goes well past it.
     public var holdStillDB: Float = 5
     /// The arrival must be a real move: toward Doppler at least this many dB above the detector's minimum peak,
     /// lasting at least `approachMinDuration`. Twitches and reaching around used to switch hover on at random.
-    public var approachMarginDB: Float = 2
-    public var approachMinDuration = 0.1
+    public var approachMarginDB: Float = 0
+    public var approachMinDuration = 0.06
     /// No keyboard/trackpad input for this long before the hand comes up (someone working isn't hovering).
     public var hoverInputQuiet = 2.0
     /// While ready, push = +step, pull = −step (fraction of the full range).

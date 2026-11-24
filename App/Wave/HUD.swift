@@ -12,8 +12,9 @@ final class HUDController {
     /// `level` (0…1) adds a bar; `hints` adds small "what you can do now" chips; `sticky` keeps it up until
     /// `hide(after:)`.
     func show(symbol: String, title: String, subtitle: String? = nil, level: Float? = nil, tint: Color = .accentColor,
-              hints: [HUDHint] = [], sticky: Bool = false) {
-        let view = HUDView(symbol: symbol, title: title, subtitle: subtitle, level: level, tint: tint, hints: hints)
+              hints: [HUDHint] = [], holdUntil: Date? = nil, sticky: Bool = false) {
+        let view = HUDView(symbol: symbol, title: title, subtitle: subtitle, level: level, tint: tint, hints: hints,
+                           holdFrom: holdUntil == nil ? nil : Date(), holdUntil: holdUntil)
         let panel = self.panel ?? makePanel()
         if let hosting {
             hosting.rootView = view
@@ -92,11 +93,25 @@ struct HUDView: View {
     var level: Float? = nil
     var tint: Color = .accentColor
     var hints: [HUDHint] = []
+    /// A ring around the icon fills from `holdFrom` to `holdUntil` ("Hold still…").
+    var holdFrom: Date? = nil
+    var holdUntil: Date? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 12) {
                 GestureBadge(symbol: symbol, tint: tint, size: 38)
+                    .overlay {
+                        if let from = holdFrom, let until = holdUntil {
+                            TimelineView(.animation) { tl in
+                                let p = min(1, max(0, tl.date.timeIntervalSince(from) / max(0.05, until.timeIntervalSince(from))))
+                                Circle().trim(from: 0, to: p)
+                                    .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                                    .rotationEffect(.degrees(-90))
+                                    .padding(-6)
+                            }
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 15, weight: .semibold))
                     if let subtitle {

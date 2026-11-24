@@ -103,7 +103,7 @@ struct MenuView: View {
             VStack(spacing: 0) {
                 ForEach(Array(cards.enumerated()), id: \.element.title) { i, card in
                     if i > 0 { Divider().padding(.leading, 44) }
-                    GestureCard(card: card, recent: isRecent(card))
+                    LegendRow(card: card, recent: isRecent(card))
                 }
             }
             .padding(.vertical, 2)
@@ -222,7 +222,7 @@ struct GestureCardInfo {
     let kind: GestureEvent.Kind?
 }
 
-private struct GestureCard: View {
+private struct LegendRow: View {
     let card: GestureCardInfo
     let recent: Bool
 

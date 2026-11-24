@@ -167,3 +167,39 @@ struct GestureMapping: Codable, Equatable {
         }
     }
 }
+
+/// One-click setups for the whole gesture map.
+struct GesturePreset: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let symbol: String
+    let push: GestureAction
+    let swipeLeft: GestureAction
+    let swipeRight: GestureAction
+
+    static let all: [GesturePreset] = [
+        GesturePreset(id: "media", title: "Music & video", detail: "Push play/pause · swipe for next/previous track",
+                      symbol: "music.note", push: .media(.playPause), swipeLeft: .media(.previous), swipeRight: .media(.next)),
+        GesturePreset(id: "desktops", title: "Desktops", detail: "Push play/pause · swipe between desktops",
+                      symbol: "rectangle.split.3x1", push: .media(.playPause), swipeLeft: .system(.nextDesktop),
+                      swipeRight: .system(.previousDesktop)),
+        GesturePreset(id: "browser", title: "Browser tabs", detail: "Push play/pause · swipe to the next/previous tab",
+                      symbol: "safari", push: .media(.playPause), swipeLeft: .system(.nextTab), swipeRight: .system(.previousTab)),
+        GesturePreset(id: "reading", title: "Reading", detail: "Push play/pause · swipe to page down/up",
+                      symbol: "book", push: .media(.playPause), swipeLeft: .system(.pageDown), swipeRight: .system(.pageUp)),
+        GesturePreset(id: "slides", title: "Presenting", detail: "Push for the next slide · swipe forward/back",
+                      symbol: "play.rectangle", push: .system(.nextSlide), swipeLeft: .system(.nextSlide),
+                      swipeRight: .system(.previousSlide)),
+        GesturePreset(id: "youtube", title: "YouTube", detail: "Push play/pause · swipe to skip ±10 s",
+                      symbol: "play.tv", push: .media(.playPause), swipeLeft: .key(.youTubeBack10), swipeRight: .key(.youTubeForward10)),
+    ]
+
+    func matches(_ m: GestureMapping) -> Bool { m.push == push && m.swipeLeft == swipeLeft && m.swipeRight == swipeRight }
+
+    func apply(to m: inout GestureMapping) {
+        m.push = push
+        m.swipeLeft = swipeLeft
+        m.swipeRight = swipeRight
+    }
+}
