@@ -242,17 +242,17 @@ final class AppModel {
 
     private func showDialHUD() {
         guard prefs.showHUD else { return }
-        let grabHint = prefs.grabEnabled ? "close your hand: \(prefs.mapping.grab.title)" : nil
         if let target = dialTarget {
-            let pct = Int(((dialLevel ?? 0) * 100).rounded())
-            let other = prefs.dialTargets.first { $0 != target }?.title ?? ""
-            let others = prefs.dialTargets.count > 1 ? " · hold still: \(other)" : ""
-            hud.show(symbol: target.symbol, title: "\(target.title) \(pct) %",
-                     subtitle: "Push ↑  Pull ↓" + others + " · move away: done",
-                     level: dialLevel, sticky: true)
-        } else if let grabHint {
-            hud.show(symbol: "hand.raised.fill", title: "Ready", subtitle: grabHint.prefix(1).uppercased() + grabHint.dropFirst(),
-                     sticky: true)
+            var hints = [HUDHint(gesture: "Push", effect: "＋"), HUDHint(gesture: "Pull", effect: "−")]
+            if let other = prefs.dialTargets.first(where: { $0 != target }) {
+                hints.append(HUDHint(gesture: "Hold still", effect: other.title))
+            }
+            hints.append(HUDHint(gesture: "Move away", effect: "done"))
+            hud.show(symbol: target.symbol, title: target.title, subtitle: "Hover control", level: dialLevel,
+                     tint: target.tint, hints: hints, sticky: true)
+        } else if prefs.grabEnabled {
+            hud.show(symbol: "hand.raised.fill", title: "Ready", subtitle: "Make a fist: \(prefs.mapping.grab.title)",
+                     tint: GestureEvent.Kind.grab.tint, sticky: true)
         }
     }
 
@@ -273,18 +273,17 @@ final class AppModel {
         switch ActionPerformer.perform(action) {
         case .done:
             if prefs.showHUD, action != .none {
-                hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title)
+                hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title, tint: kind.tint)
             }
         case .level(let level):
             if prefs.showHUD {
-                hud.show(symbol: action.symbol, title: "\(action.title) · \(Int((level * 100).rounded())) %",
-                         subtitle: kind.title, level: level)
+                hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title, level: level, tint: kind.tint)
             }
         case .needsAccessibility:
             hud.show(symbol: "exclamationmark.triangle.fill", title: "Wave needs Accessibility",
-                     subtitle: "to send media keys — open Wave Settings")
+                     subtitle: "To press media keys — click the Wave menu to grant it", tint: .orange)
         case .failed(let message):
-            hud.show(symbol: "exclamationmark.triangle.fill", title: "Couldn't run action", subtitle: message)
+            hud.show(symbol: "exclamationmark.triangle.fill", title: "Couldn't run that", subtitle: message, tint: .orange)
         }
     }
 
@@ -406,8 +405,18 @@ final class AppModel {
 
     // MARK: Windows
 
-    func showSettings() {
-        windows.show(.settings, title: "Wave Settings", size: NSSize(width: 620, height: 560)) {
+    /// Plausible state for UI snapshots (a recent gesture), without listening.
+    func prepareForSnapshot() {
+        lastGesture = (.swipeLeft, prefs.mapping.swipeLeft, Date().addingTimeInterval(-2))
+    }
+
+    enum SettingsTab: Hashable { case general, gestures, sound, calibration, advanced }
+    /// Which Settings tab is showing (the menu's "Change…" jumps to Gestures).
+    var settingsTab: SettingsTab = .general
+
+    func showSettings(tab: SettingsTab? = nil) {
+        if let tab { settingsTab = tab }
+        windows.show(.settings, title: "Wave Settings", size: NSSize(width: 660, height: 600)) {
             SettingsView(model: self)
         }
     }
@@ -489,18 +498,29 @@ extension GestureEvent.Kind {
         case .push: return "Push"
         case .swipeLeft: return "Swipe left"
         case .swipeRight: return "Swipe right"
-        case .grab: return "Grab"
+        case .grab: return "Fist"
         case .pull: return "Pull"
         }
     }
 
     var symbol: String {
         switch self {
-        case .push: return "hand.point.up.left.fill"
-        case .swipeLeft: return "arrow.left"
-        case .swipeRight: return "arrow.right"
+        case .push: return "hand.raised.fill"
+        case .swipeLeft: return "hand.point.left.fill"
+        case .swipeRight: return "hand.point.right.fill"
         case .grab: return "hand.raised.fingers.spread.fill"
         case .pull: return "arrow.uturn.backward"
+        }
+    }
+
+    /// How to do it, in a few words.
+    var howTo: String {
+        switch self {
+        case .push: return "Toward the screen and back"
+        case .pull: return "From close up, flick back toward you"
+        case .swipeLeft: return "Across the laptop, right → left"
+        case .swipeRight: return "Across the laptop, left → right"
+        case .grab: return "Open hand, then a quick firm fist"
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Observation
 import WaveCore
 
@@ -17,23 +18,35 @@ public struct Lesson: Identifiable, Equatable, Sendable {
         case .push: return "Push"
         case .pull: return "Pull"
         case .hover: return "Hover controls"
-        case .grab: return "Grab"
+        case .grab: return "Fist"
         case .swipe: return "Swipe"
+        }
+    }
+
+    /// Matches the gesture colours in the app's menu and Settings.
+    public var tint: Color {
+        switch kind {
+        case .sonar: return .green
+        case .push: return .blue
+        case .pull: return .indigo
+        case .hover: return .pink
+        case .grab: return .orange
+        case .swipe: return .teal
         }
     }
 
     public var symbol: String {
         switch kind {
         case .sonar: return "dot.radiowaves.left.and.right"
-        case .push: return "hand.point.up.left.fill"
-        case .pull: return "hand.raised.fill"
-        case .hover: return "slider.horizontal.3"
+        case .push: return "hand.raised.fill"
+        case .pull: return "arrow.uturn.backward"
+        case .hover: return "dial.medium.fill"
         case .grab: return "hand.raised.fingers.spread.fill"
         case .swipe: return "arrow.left.and.right"
         }
     }
 
-    public var experimental: Bool { kind == .grab || kind == .swipe }
+    public var experimental: Bool { kind == .grab }
 
     public var instructions: String {
         switch kind {

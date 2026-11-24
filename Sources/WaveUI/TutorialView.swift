@@ -38,9 +38,12 @@ public struct TutorialView: View {
             ForEach(Array(model.lessons.enumerated()), id: \.element.id) { i, lesson in
                 Button { model.index = i } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: model.completed.contains(lesson.id) ? "checkmark.circle.fill" : lesson.symbol)
-                            .foregroundStyle(model.completed.contains(lesson.id) ? .green : .accentColor)
-                            .frame(width: 22)
+                        Image(systemName: model.completed.contains(lesson.id) ? "checkmark" : lesson.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background((model.completed.contains(lesson.id) ? Color.green : lesson.tint).gradient,
+                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                         VStack(alignment: .leading, spacing: 0) {
                             Text(lesson.title).fontWeight(i == model.index ? .semibold : .regular)
                             if lesson.experimental { Text("experimental").font(.caption2).foregroundStyle(.secondary) }
@@ -138,12 +141,20 @@ public struct TutorialView: View {
             Button("Back") { model.back() }.disabled(model.index == 0)
             Spacer()
             if model.index + 1 < model.lessons.count {
-                Button(model.isComplete ? "Next lesson" : "Skip") { model.next() }
-                    .keyboardShortcut(.defaultAction)
+                if model.isComplete {
+                    Button("Next lesson") { model.next() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Skip") { model.next() }
+                }
             } else {
-                Button("Done") { onClose() }.keyboardShortcut(.defaultAction)
+                Button("Done") { onClose() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             }
         }
+        .controlSize(.large)
     }
 }
 
@@ -196,7 +207,8 @@ public struct LiveSonarView: View {
                     ctx.stroke(Path(ellipseIn: CGRect(x: x - rr, y: midY - 10 - rr, width: rr * 2, height: rr * 2)),
                                with: .color(.pink.opacity(min(1, micro))), lineWidth: 2)
                 }
-                let hand = ctx.resolve(Image(systemName: ready ? "hand.raised.fill" : "hand.raised"))
+                var hand = ctx.resolve(Image(systemName: "hand.raised.fill"))
+                hand.shading = .color(ready ? .green : Color(white: 0.92))
                 ctx.draw(hand, in: CGRect(x: x - 26, y: midY - 40, width: 52, height: 60))
                 // Motion arrows
                 if toward > 0.15 {

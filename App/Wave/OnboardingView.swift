@@ -62,8 +62,11 @@ struct OnboardingView: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Audio never leaves your Mac and is never saved to disk — except debug recordings you start yourself.", systemImage: "lock.fill")
-                    Label("The orange microphone dot in the menu bar is on whenever Wave is listening. That's Wave hearing its own tone.", systemImage: "circle.fill")
-                        .symbolRenderingMode(.palette).foregroundStyle(.orange, .primary)
+                    Label {
+                        Text("The orange microphone dot in the menu bar is on whenever Wave is listening. That's Wave hearing its own tone.")
+                    } icon: {
+                        Image(systemName: "circle.fill").foregroundStyle(.orange)
+                    }
                     Label("By default Wave only listens while something is playing, so the dot is off the rest of the time.", systemImage: "play.circle")
                 }
                 .padding(6)

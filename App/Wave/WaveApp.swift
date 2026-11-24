@@ -37,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             source.resume()
             signalSources.append(source)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--snapshots"), i + 1 < CommandLine.arguments.count {
+            Snapshots.run(to: URL(fileURLWithPath: CommandLine.arguments[i + 1]), model: model)
+            exit(0)
+        }
         model.launch()
         // `open Wave.app --args --tutorial` opens the gesture tutorial straight away.
         if CommandLine.arguments.contains("--tutorial") { model.showTutorial() }
