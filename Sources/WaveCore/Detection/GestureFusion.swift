@@ -43,7 +43,11 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// A push comes at the screen: measured 0.76–1.25 m/s toward it, swipes 0.33–0.75. Two-tone motion with no
     /// clear left/right timing that is slower than this toward the screen is sideways, not a push (it was
     /// playing/pausing during swipes).
-    public var minPushSpeed: Float = 0.55
+    public var minPushSpeed: Float = 0.7
+    /// A push comes back no faster than it went in (real pushes: return/approach speed 0.67–1.12); a swipe
+    /// whips past, so its 'return' is quicker (the swipes that played/paused: 1.3–1.8). Above this ratio it's
+    /// not taken as a push.
+    public var pushMaxReturnRatio: Float = 1.25
     /// The two speakers' events must reverse within this of each other to be the same gesture.
     public var maxPairGap: Double = 0.15
     /// How long to wait for the other speaker before giving up on a one-sided event.
@@ -92,6 +96,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         minPushSpeed = v(.minPushSpeed, minPushSpeed)
         oneToneSwipeDB = v(.oneToneSwipeDB, oneToneSwipeDB)
         swipeStreak = v(.swipeStreak, swipeStreak)
+        pushMaxReturnRatio = v(.pushMaxReturnRatio, pushMaxReturnRatio)
         pushMaxLag = v(.pushMaxLag, pushMaxLag)
         oneSidedPushes = v(.oneSidedPushes, oneSidedPushes)
         // Settings saved before the camera-measured window (v2) used a wider cut-off that turned swipes into
@@ -108,7 +113,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
-        case minPushSpeed, oneToneSwipeDB, windowVersion, swipeStreak, pushMaxLag, oneSidedPushes
+        case minPushSpeed, oneToneSwipeDB, windowVersion, swipeStreak, pushMaxLag, oneSidedPushes, pushMaxReturnRatio
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.
@@ -194,10 +199,12 @@ public final class GestureFusion {
         e.confidence = (left.confidence + right.confidence) / 2
         if kind == .push {
             guard anyAccepted else { return nil }
-            if abs(lag - config.lagCenter) > config.pushMaxLag {
+            let approach = e.towardPeakVelocity  // average of both tones
+            let returnRatio = abs(e.awayPeakVelocity) / max(0.05, approach)
+            if abs(lag - config.lagCenter) > config.pushMaxLag || returnRatio > config.pushMaxReturnRatio {
                 e.outcome = .unclear
             } else {
-                e.outcome = speed >= config.minPushSpeed ? .accepted : .sideways
+                e.outcome = approach >= config.minPushSpeed && speed >= config.minPushSpeed ? .accepted : .sideways
             }
         } else {
             // Both tones saw a toward → away blip, one after the other: the hand crossed. Its echo just has to be clear.
