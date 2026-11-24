@@ -1,176 +1,181 @@
 # Wave
 
-Hand gestures in the air over a MacBook, detected with ultrasonic sonar. The built-in speakers play a
-tone too high to hear, the built-in microphones pick up its echo off your hand, and the Doppler shift
-shows how your hand moved. No camera, no extra hardware.
+**Control your Mac by moving your hand in the air, using only the speakers and microphones it already has.**
 
-You're eating, you push your hand toward the screen and back, and YouTube pauses.
+Wave turns a MacBook into a gesture device with no camera and no extra hardware. The built-in speakers play
+an ultrasonic tone you can't hear; the built-in microphones listen to its echo off your hand; the Doppler shift
+tells Wave how your hand moved. Push toward the screen to pause the video you're watching while you eat. Swipe
+across the laptop to switch tabs in your browser, tracks in Spotify, slides in Keynote, or seconds on YouTube.
 
-| Gesture | How | Default action |
+<p align="center">
+  <img src="docs/images/menu.png" width="360" alt="Wave's menu bar panel: listening, the last gesture, smart swipe modes for the browser in front, and the gesture legend">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/images/hud-swipe.png" width="300" alt="On-screen confirmation after a swipe">
+</p>
+
+- **Zero hardware.** Every MacBook already has the sensor: its speakers and microphones.
+- **Private by design.** No camera. Audio is analysed in memory on the Mac and never saved or sent anywhere.
+- **Knows what you're doing.** Smart mode makes the same swipe do the right thing in each app and on YouTube.
+- **Built on measurements.** Tuned on real recordings of real hands, with a webcam-labelled test bench.
+
+## What you can do
+
+| Gesture | Motion | What it does |
 |---|---|---|
-| **Push** | hand toward the screen and straight back (~0.5 s) | Play/Pause |
-| **Pull** | start close, move away and straight back | nothing (map it: e.g. Minimize) |
-| **Hover controls** | bring your hand up ~20 cm from the screen and hold it until ✋ appears; then **push = up, pull = down** (10 % each); hold still to switch volume ↔ brightness; move your hand away to finish | Volume, Brightness |
-| **Grab** *(experimental)* | from the raised hand (✋): close it into a fist | Minimize window |
-| **Swipe left / right** *(experimental, two tones)* | a brisk sideways pass 15–30 cm in front of the screen | Previous / Next track, or the **Desktops** preset |
+| **Push** | Open hand toward the screen and back, about half a second | Play / Pause |
+| **Swipe left / right** | A brisk pass across the laptop, 15–30 cm in front of the screen | Follows the app you're in (below); desktops everywhere else |
+| **Pull** | From close up, flick your hand back toward you | Anything you map it to |
+| **Volume, brightness** | Pick the Volume or Brightness swipe mode, then swipe right for more, left for less | |
 
-**Learn them in the app:** menu → **Learn gestures…** opens a live, interactive tutorial that shows your
-hand the way Wave senses it (toward = green, away = orange, finger motion = pink), counts each gesture and
-explains why a try didn't count ("a bit slow", "didn't come back out", …). `make tutorial` installs Wave and
-opens it.
+Any gesture can trigger media keys, window and desktop actions (Mission Control, next desktop, minimize, full
+screen), browser and document actions (tabs, back/forward, page up/down, zoom), slides, volume and brightness,
+Spotlight, screenshots, any keyboard shortcut, or any shortcut from the Shortcuts app. Each one has a ▶ button
+to try it without moving.
 
-Each gesture can be mapped to a media key, a window/desktop/volume/brightness action, a keyboard shortcut,
-or a Shortcuts-app shortcut (Settings → Gestures).
+### Smart mode: the same swipe does the right thing everywhere
 
-**What's solid and what's experimental.** Push, pull and the hover controls are built on fast Doppler motion,
-which real recordings on a MacBook Air M4 detect reliably (every recorded push, no false pulls or holds).
-Slow sliding was dropped: real recordings showed the slow-motion echo sits only ~5–14 dB above noise.
-Grab depends on faint finger motion and may not register on every Mac or hand; the tutorial's finger-motion
-meter shows whether yours does. Swipes need two tones (18.75 / 19.25 kHz, one per speaker), and the 13"
-Air's speakers sit close together.
+| You're in | Swipe left / right |
+|---|---|
+| Safari, Chrome, Brave, Arc, Firefox, Edge | Tab on the left / right |
+| **YouTube** in any of those | Back / forward 10 s (recognised from the window title) |
+| Spotify, Music, TV, Podcasts, VLC, IINA | Previous / next track |
+| Keynote, PowerPoint | Previous / next slide |
+| Preview, Books | Page down / up |
+| Everything else | Previous / next desktop |
 
-## Privacy
+Every app and site can be changed, and any app added, in **Settings → Apps**. The menu always shows what swipes
+do in the app you're using, and one tap changes it for that app.
 
-- Audio is analysed **in memory, on your Mac**. It never leaves the Mac and is **never saved to disk**,
-  except debug recordings you start yourself (debug window → Record), saved to
-  `~/Library/Application Support/Wave/Recordings`.
-- The **orange microphone dot** in the menu bar is on whenever Wave is listening: that's Wave hearing its
-  own tone. With "Only listen while media is playing" (the default), it's off the rest of the time.
-- Labeled training samples (Settings → Calibration) contain feature numbers only, never audio.
+<p align="center">
+  <img src="docs/images/settings-apps.png" width="760" alt="Settings → Apps: each app with its swipe mode, and YouTube as a website">
+</p>
 
-## Install and first run
+## The app
 
-Requires a MacBook (built-in speakers and microphones) with macOS 14 or later, and Xcode to build.
+<p align="center">
+  <img src="docs/images/settings-gestures.png" width="760" alt="Settings → Gestures: the last gesture live, swipe modes, and animated cards for each gesture">
+</p>
 
-```sh
-make install     # builds Wave.app, copies it to /Applications and starts it
-```
+- **Menu bar panel**: live status, the last gesture and what it did, swipe modes for the app in front, your
+  gestures, sensitivity, snooze, and today's count.
+- **On-screen confirmation** for every gesture, coloured by gesture, naming the action and the app.
+- **Settings**: one page per topic. Each gesture is an animated card with its action and a try button. There
+  are one-click setups, and the last detected gesture updates live so you can test right there.
+- **Live tutorial** that shows your hand the way Wave senses it (toward = green, away = orange). It counts each
+  gesture and explains why a try didn't count ("too slow", "didn't come back out", …).
+- **Calibration** for your room and hand, and a **detection log** (text only, never audio). Every recognised
+  or rejected gesture is listed with the reason, so a misfire can be explained afterwards.
 
-Wave lives in the menu bar (hand icon). The first launch walks you through:
-
-1. **Microphone** access (to hear the echo).
-2. **MacBook speakers**: the tone always plays on the built-in speakers, even when you listen on
-   AirPods or headphones. Your volume keys only change the device you're listening on, so the speakers
-   keep their own volume. Wave compensates, and pauses with *Volume too low for Wave* when it can't
-   (when the speakers are more than ~6 dB quieter than at half volume). The onboarding and menu have a
-   "Set to 50 %" button.
-3. **Hearing test**: if you can hear the tone, Wave moves to a higher one.
-4. **Accessibility**, so Wave can press Play/Pause for you (System Settings → Privacy & Security →
-   Accessibility → Wave).
-
-Then play a video and push your hand toward the screen and back. A small confirmation appears at the
-top of the screen.
-
-**Calibrate** (menu → Calibrate…) to tune the thresholds to your room and hand: a few seconds of
-stillness, then 5 pushes (and 5 swipes each way if swipes are on).
-
-## When Wave pauses itself
-
-Wave stops listening (and playing its tone) when:
-- you typed or used the trackpad in the last 0.8 s (that gesture is ignored),
-- the MacBook speakers are muted or too quiet,
-- the screen is locked, the display or Mac is asleep, or the lid is closed,
-- nothing is playing (with *Only listen while media is playing*), plus a grace period (default 3 min) so
-  a push can resume what a push paused. If an app keeps an audio stream open while idle (Signal Desktop
-  does), choose **Ignore** next to it in Settings → General.
-
-## Troubleshooting
-
-- **Nothing happens on a push.** Check the menu status. "Waiting for media to play" means nothing is
-  playing; "Volume too low for Wave" means the MacBook speakers are too quiet. Open
-  **Debug window…** to see the spectrogram and every detection with the reason it was rejected.
-- **Play/Pause goes to the wrong app.** Media keys go to the system's "Now Playing" app, the one you
-  played or paused most recently.
-- **"Wave needs Accessibility"** after rebuilding: if Wave was ad-hoc signed (no developer certificate),
-  macOS treats each build as a new app. Remove Wave from the Accessibility list and add it again. `make`
-  signs with your Apple Development certificate automatically when you have one, which avoids this.
-- **I can hear a faint tone.** Settings → Sound → Run hearing test, or pick a higher tone there.
+<p align="center">
+  <img src="docs/images/tutorial.png" width="760" alt="The live tutorial: lessons on the left, a side view of the laptop and your hand as Wave senses it">
+</p>
 
 ## How it works
 
+```mermaid
+flowchart LR
+    S["Built-in speakers<br/>18.75 kHz left · 19.25 kHz right<br/>(inaudible)"] -->|tone| H((Your hand))
+    H -->|"echo, Doppler-shifted"| M["Built-in microphones"]
+    M --> F["FFT every 10.7 ms<br/>energy just above / below each tone"]
+    F --> D["Gesture detection"]
+    D --> C["Smart mode:<br/>what this gesture means<br/>in the app you're in"]
+    C --> A["Action"]
 ```
-built-in speakers ── 19 kHz tone ──► hand ──► echo, Doppler-shifted ──► built-in mic
-                                                                           │
-       AUHAL capture (raw, no voice processing) → ring buffer → 4096-pt FFT every 10.7 ms
-       → energy just above / below the tone vs. a still-hand baseline, Doppler speed, reference band
-       → push detector: strong "toward" then "away" within 0.2–0.75 s → action
-```
 
-- **M0** measured this MacBook Air M4's speaker→mic response: usable only around 18.75–19.25 kHz (it falls
-  off a cliff above ~19.5 kHz; 96 kHz sampling doesn't help). See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md).
-- The tone's *acoustic* level is held constant: −8 dBFS at 50 % speaker volume, adjusted digitally as the
-  speakers' own volume changes.
-- **Phase tracking (hold & slide, grab).** Doppler bins are 11.7 Hz wide, so motion slower than ~0.3 m/s
-  (a hand sliding a few cm/s, fingers curling) never leaves the tone's own bins. Wave also mixes each tone
-  down to 0 Hz, low-passes it, subtracts the slowly varying static echo (direct path, furniture, your
-  still hand), and follows the phase of what's left, the approach used by acoustic hand-tracking research
-  such as LLAP. One turn of phase is one wavelength of round-trip path (1.8 cm at 19 kHz), so a few
-  millimetres of hand movement are visible. Sliding keeps the moving echo strong; closing the hand makes it
-  jump briefly and fade with little net movement, which is how a grab is told apart from the dial.
-- **Volume** is set on the current output device through Core Audio (never below what Wave needs when you
-  listen on the MacBook speakers). **Brightness** uses DisplayServices, a private Apple framework loaded at
-  runtime (falls back to the brightness keys). Desktop switching sends ⌃← / ⌃→, the Mission Control
-  shortcuts, which must be enabled in System Settings → Keyboard → Keyboard Shortcuts.
-- **Swipes** use one tone per speaker (left 18.75 kHz, right 19.5 kHz). A hand crossing the laptop
-  passes the left and right echo paths at different times; the lag between the two Doppler reversals
-  separates swipes from pushes and gives the direction. This is experimental on a 13" MacBook Air (the
-  speakers are close together), so calibrate after turning it on.
-- Rejected gestures: recent keyboard/trackpad input (IOHIDSystem `HIDIdleTime`, no permission needed),
-  broadband noise (a reference band where hand Doppler can't reach), one-way motion, too slow or fast,
-  too weak.
-- Power: about 2 % of one core while listening (FFT, detection, tone), nothing while idle. `make cpu`
-  measures the running app.
+A hand moving toward the laptop raises the pitch of the echo; moving away lowers it. Wave watches the energy
+just above and below each tone, against a running baseline of the still room:
 
-## Building and developing
+- **Push**: toward, then away, within 0.2–0.75 s. It reaches both tones in the same frame, and the hand comes back
+  no faster than it went in.
+- **Swipes**: each speaker plays its own tone. A hand crossing the laptop passes the left and right echo paths
+  at different times (21–75 ms apart), which gives the direction. A push reaches both at once.
+- **Rejecting everything else**: broadband sounds (taps, knocks, clicks) are louder away from the tones than a
+  hand's Doppler can reach. Typing, clicking and scrolling pause detection for a moment, and so does a hand
+  stopping right after a gesture. Push-like motions in the middle of a run of swipes are recognised as part of
+  the swiping.
+- **Fast**: a gesture is decided as soon as the hand's return is clearly under way: about 130 ms after the hand
+  turns for a push, about 150 ms for a swipe.
 
-Swift 6, Apple frameworks only. `App/Wave.xcodeproj` (the app) uses the Swift package at the repository
-root (`WaveCore`: audio, DSP, detection; `WaveUI`: debug views).
+The tone stays inaudible and at a constant acoustic level whatever the speaker volume, and Wave pauses itself
+when it can't work: speakers muted, screen locked, lid closed. It uses about 2 % of one CPU core while
+listening and nothing while idle.
+
+## How it's tested
+
+- **Hardware measurement first.** A frequency sweep of the MacBook Air M4's own speaker → microphone path
+  showed it's usable only around 18.75–19.25 kHz, which set the tones ([docs/M0-FINDINGS.md](docs/M0-FINDINGS.md)).
+- **Webcam-labelled sessions.** A guided session asks for each gesture in turn while it records the sonar audio,
+  webcam snapshots and every detection. It then includes typing, everyday movement and taps, where nothing
+  should fire. A report lists every hit, miss and false trigger with the webcam frames around it, and a replay
+  harness runs the same audio through the current detector, so every change is checked against real hands
+  before anyone tries it.
+- **Latest labelled session**, replayed through the current detector: 45 correct detections and 2 false ones
+  (hand movements during the fist and hover steps read as swipes). Nothing triggered during typing, everyday
+  use or taps, and no swipe was mistaken for a push.
+- **75 unit tests** on synthetic sonar scenes: a geometric hand model in front of two speakers, pushes, pulls,
+  swipes in both directions, noise bursts, typing, fists.
+
+## Privacy
+
+- Audio is analysed **in memory, on your Mac**. It never leaves the Mac and is never saved, except debug
+  recordings you start yourself.
+- No camera. The guided test session's webcam snapshots are opt-in tooling, saved locally, and not part of the app.
+- The **orange microphone dot** in the menu bar is on whenever Wave is listening: that's Wave hearing its own tone.
+- The detection log holds gesture names, timings and levels as text; never sound.
+
+## Get started
+
+Requires a MacBook (built-in speakers and microphones), macOS 14 or later, and Xcode to build. Swift 6, Apple
+frameworks only, no third-party dependencies.
 
 ```sh
-make app         # build Wave.app (xcodebuild)
+make install     # build Wave.app, copy it to /Applications and start it
+```
+
+Wave lives in the menu bar. The first launch asks for **Microphone** access (to hear the echo) and
+**Accessibility** (to press keys for you), checks the MacBook speakers aren't muted, and offers a hearing test
+(if you can hear the tone, Wave moves to a higher one). Then open **Practice** in the menu and try a push.
+
+## Status and what's next
+
+Push and swipes are the solid core. Volume and brightness work reliably through swipe modes. Two features are
+**experimental and off by default**:
+
+- **Hovering for volume.** A hand held still and a hand that just paused look the same to sonar.
+- **Fist.** Recognised from the faint sound of fingers meeting the palm; it only counts while the hand is held up.
+
+Next:
+
+- Learn each person's gestures from labelled samples (the app already records them as feature data, no audio).
+- More sites in smart mode, and per-site actions.
+- Developer ID signing and notarization for distribution (`scripts/release.sh`).
+
+## Development
+
+```sh
+make app         # build Wave.app
 make run         # build and launch without installing
-make test        # unit tests (synthetic Doppler gestures, swipe geometry, calibration, record/replay, …)
+make test        # unit tests
+make session     # webcam-labelled test session (run from Terminal.app, which has microphone access)
+python3 scripts/session_report.py   # report on the newest session: hits, misses, false triggers, frames
+python3 scripts/session_replay.py   # replay that session through the current detector
+make debug       # live spectrogram, detector traces and event log
+make replay FILE=…/wave-….caf       # rerun the detector on a recording
 make cpu         # CPU use of the running app
 ```
 
-Tools for measuring and tuning (run them from Terminal.app, which needs microphone access):
-
-```sh
-make devices     # audio hardware report
-make sweep       # M0 frequency sweep (17–22.5 kHz)
-make debug       # standalone debug window: spectrogram, traces, event log
-make detect      # live detection in the terminal
-make record      # detection + raw audio recording for replay (LABEL=push make record)
-make replay FILE=~/Library/Application\ Support/Wave/Recordings/wave-….caf
-make demo        # synthetic recording with pushes, noise, typing (no waving needed)
-make demo-hold   # synthetic hold & slide + grab, shown in the debug window
+```
+App/                    The menu bar app: menu, settings, smart mode, actions, on-screen confirmation, onboarding
+Sources/WaveCore/       Audio (Core Audio devices, tone + capture), DSP (vDSP FFT), detection (features, push,
+                        pull, two-tone fusion, hover, fist), engine, recording + replay, calibration
+Sources/WaveUI/         Tutorial, live sonar view, debug views
+Sources/wave-demo/      Webcam-labelled test session
+Sources/wave-probe/     CLI: device report, sweeps, live detection, capture, replay
+Sources/WaveRT/         C11 atomics for the real-time audio path
+Tests/                  Unit tests (Swift Testing)
+docs/                   Measurements and design notes
+scripts/                Session report and replay, release, icon, CPU measurement
 ```
 
-`wave-probe config > my.json` prints the detector settings; `wave-probe replay FILE --config my.json --csv
-features.csv` reruns the detector on the same audio and dumps per-frame features.
-
-### Distribution (Developer ID + notarization)
-
-Needs a paid Apple Developer account with a **Developer ID Application** certificate. Before shipping,
-change the bundle identifier (`local.wave.Wave` in the project) to one you own.
-
-```sh
-xcrun notarytool store-credentials wave-notary --apple-id YOU@EXAMPLE.COM --team-id TEAMID   # once
-scripts/release.sh --team TEAMID          # archive (universal) → sign → notarize → staple → zip
-```
-
-### Layout
-
-```
-App/                   Xcode project, app sources (menu bar, settings, onboarding, calibration, HUD)
-Sources/WaveCore/      Audio (Core Audio devices, AUHAL tone + capture), DSP (vDSP FFT), Detection
-                       (features, push detector, two-tone fusion), Engine, Recording (CAF + replay),
-                       Calibration, System (input idle, lid, media activity)
-Sources/WaveUI/        Debug views (spectrogram, traces, event log)
-Sources/wave-probe/    CLI: devices, speakers, sweep, live, detect, replay, config, synth, media
-Sources/wave-debug/    Standalone debug window
-Sources/WaveRT/        C11 atomics for the real-time audio path
-Tests/                 Swift Testing unit tests
-docs/                  M0 measurements, assumptions and decisions
-scripts/               release (notarization), icon, CPU measurement
-```
+For distribution, change the bundle identifier (`local.wave.Wave`) to one you own and run
+`scripts/release.sh --team TEAMID` (archive → sign with Developer ID → notarize → staple).

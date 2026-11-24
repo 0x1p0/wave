@@ -35,7 +35,7 @@ change that.
 - The "y" at 21.5 kHz in the raw report is not Doppler: there is no pilot there (SNR −0.4 dB). Broadband
   noise during waving (clothing, rings…) raised the sidebands. The detector needs a reference band away
   from the pilot to reject these bursts. The probe now marks such rows `n*`.
-- Repeatability: an independent still-hand run (Claude, same afternoon) matched within ~1 dB.
+- Repeatability: an independent still-hand run (same afternoon) matched within ~1 dB.
 
 ## Sample rate: 96 kHz doesn't help
 

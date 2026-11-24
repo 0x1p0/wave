@@ -560,12 +560,17 @@ final class AppModel {
 
     // MARK: Windows
 
-    /// Plausible state for UI snapshots (a recent gesture), without listening.
+    /// Plausible state for UI snapshots (listening, permissions granted, a recent gesture in a browser),
+    /// without actually listening.
     func prepareForSnapshot() {
-        lastGesture = (.swipeLeft, prefs.mapping.swipeLeft, Date().addingTimeInterval(-2))
+        engineStatus = .running
+        micPermission = .authorized
+        accessibilityTrusted = true
+        gesturesToday = 18
         if let brave = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.brave.Browser") {
             frontApp = ("com.brave.Browser", FileManager.default.displayName(atPath: brave.path).replacingOccurrences(of: ".app", with: ""), 0)
         }
+        lastGesture = (.swipeLeft, effectiveAction(for: .swipeLeft), Date().addingTimeInterval(-2))
     }
 
     enum SettingsTab: Hashable { case gestures, apps, hover, general, sound, calibration, advanced }

@@ -144,7 +144,7 @@ struct CaptureCommand {
         print(saved == steps.count
               ? Term.bold("Done — \(saved) recordings in \(dir.path)")
               : "Stopped after \(saved) recordings in \(dir.path)")
-        print("Wave reopens now. Tell Claude “captured”.")
+        print("Wave reopens now. Recordings are in the folder above (replay them with: make replay FILE=…).")
         return 0
     }
 }
