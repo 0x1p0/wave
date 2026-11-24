@@ -25,6 +25,9 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         /// Push-shaped with no clear left/right timing, in the middle of a run of swipes: a swipe that passed the
         /// middle of the laptop, not a push.
         case duringSwipes = "during swipes, not a push"
+        /// Two tones, one frame apart: not clearly a push (real pushes reach both in the same frame) and not
+        /// clearly a swipe. Ignored rather than guessed.
+        case unclear = "not clearly a push or a swipe"
     }
 
     public var id = UUID()

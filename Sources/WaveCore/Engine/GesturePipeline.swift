@@ -290,12 +290,14 @@ public final class GesturePipeline {
 
     private func deliver(_ event: GestureEvent, into out: inout PipelineOutput) {
         var event = event
-        if layout.isStereo, event.isAccepted {
-            if event.kind == .swipeLeft || event.kind == .swipeRight {
+        if layout.isStereo {
+            if event.isAccepted && (event.kind == .swipeLeft || event.kind == .swipeRight) {
                 swipeStreakUntil = event.end + fusion.config.swipeStreak
-            } else if event.kind == .push, event.end < swipeStreakUntil {
-                // In a run of swipes, a push without a clear left/right timing is a swipe that passed the middle.
-                event.outcome = .duringSwipes
+            } else if event.kind == .push, event.end < swipeStreakUntil,
+                      event.isAccepted || (event.outcome == .oneSided && max(event.towardPeakDB, event.awayPeakDB) >= 12) {
+                // In a run of swipes, a push-shaped motion without a clear left/right timing is a swipe that passed
+                // the middle (or one only one tone caught). It isn't a push, and it keeps the run going.
+                if event.isAccepted { event.outcome = .duringSwipes }
                 swipeStreakUntil = event.end + fusion.config.swipeStreak
             }
         }

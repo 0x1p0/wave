@@ -62,7 +62,13 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// After a swipe, a push-shaped motion without a clear left/right timing is taken as part of the swiping
     /// (ignored) for this long; each such motion extends it. Measured: a run of back-and-forth swipes produced
     /// 4 'pushes' with 0 / ±11 ms timing, which played and paused the music.
-    public var swipeStreak: Double = 2.5
+    public var swipeStreak: Double = 6.0
+    /// A push must reach both tones within this of each other (s): one frame (10.7 ms) of jitter, since a tone
+    /// can cross its threshold a frame earlier depending on its background level.
+    public var pushMaxLag: Double = 0.012
+    /// Accept a push that only one tone saw. Off: on the 18.75/19.25 kHz pair both tones see real pushes,
+    /// and one-tone 'pushes' were swipes (they played and paused the music mid-swiping).
+    public var oneSidedPushes = false
 
     /// Which measured swipe/push window these values come from (2 = camera session, lag centre 0).
     public var windowVersion = 2
@@ -86,6 +92,8 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         minPushSpeed = v(.minPushSpeed, minPushSpeed)
         oneToneSwipeDB = v(.oneToneSwipeDB, oneToneSwipeDB)
         swipeStreak = v(.swipeStreak, swipeStreak)
+        pushMaxLag = v(.pushMaxLag, pushMaxLag)
+        oneSidedPushes = v(.oneSidedPushes, oneSidedPushes)
         // Settings saved before the camera-measured window (v2) used a wider cut-off that turned swipes into
         // pushes. Use the measured defaults instead.
         if windowVersion < 2 {
@@ -100,7 +108,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
-        case minPushSpeed, oneToneSwipeDB, windowVersion, swipeStreak
+        case minPushSpeed, oneToneSwipeDB, windowVersion, swipeStreak, pushMaxLag, oneSidedPushes
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.
@@ -186,7 +194,11 @@ public final class GestureFusion {
         e.confidence = (left.confidence + right.confidence) / 2
         if kind == .push {
             guard anyAccepted else { return nil }
-            e.outcome = speed >= config.minPushSpeed ? .accepted : .sideways
+            if abs(lag - config.lagCenter) > config.pushMaxLag {
+                e.outcome = .unclear
+            } else {
+                e.outcome = speed >= config.minPushSpeed ? .accepted : .sideways
+            }
         } else {
             // Both tones saw a toward → away blip, one after the other: the hand crossed. Its echo just has to be clear.
             guard anyAccepted || (e.towardPeakDB >= config.swipeMinPeakDB && min(left.awayPeakDB, right.awayPeakDB) > 0) else { return nil }
@@ -220,7 +232,7 @@ public final class GestureFusion {
         if let swipe = oneToneSwipe(e, band: band) { return swipe }
         guard e.isAccepted else { return e }
         var r = e
-        if min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB && e.towardPeakVelocity >= config.lateralSpeed {
+        if config.oneSidedPushes && min(e.towardPeakDB, e.awayPeakDB) >= config.oneSidedPushDB && e.towardPeakVelocity >= config.lateralSpeed {
             // Strong, clearly push-shaped and coming at the screen: don't lose it because the other tone was
             // weak. A slow one is far more likely half a swipe that only one tone caught.
             r.kind = .push

@@ -68,12 +68,16 @@ struct SwipeTests {
         #expect(fusion.add(e(1.00), band: 0).isEmpty)
         let swipe = fusion.add(e(1.08), band: 1)
         #expect(swipe.first?.kind == .swipeRight)
-        // A strong push seen by one tone only still counts…
+        // A push seen by one tone only doesn't count by default (those were swipes playing/pausing music)…
         #expect(fusion.add(e(2.0), band: 1).isEmpty)
         #expect(fusion.flush(now: 2.3).isEmpty)
-        let strong = fusion.flush(now: 2.6)
+        #expect(fusion.flush(now: 2.6).first?.outcome == .oneSided)
+        // …unless one-tone pushes are switched on; then a strong one counts…
+        fusion.config.oneSidedPushes = true
+        #expect(fusion.add(e(3.0), band: 1).isEmpty)
+        let strong = fusion.flush(now: 3.6)
         #expect(strong.first?.isAccepted == true && strong.first?.kind == .push)
-        // …a weak one doesn't.
+        // …and a weak one still doesn't.
         #expect(fusion.add(e(4.0, peak: 8), band: 0).isEmpty)
         #expect(fusion.flush(now: 4.6).first?.outcome == .oneSided)
     }
@@ -103,9 +107,9 @@ struct SwipeTests {
         #expect(fusion.flush(now: 1.6).first?.outcome == .oneSided)
         #expect(fusion.add(e(3.0, speed: 0.4), band: 0).isEmpty)
         #expect(fusion.add(e(3.0, speed: 0.4), band: 1).first?.outcome == .sideways)
-        // A real push (fast toward the screen) still counts either way.
+        // A real push (fast toward the screen, both tones at once) counts.
         #expect(fusion.add(e(5.0, speed: 1.0), band: 0).isEmpty)
-        #expect(fusion.flush(now: 5.6).first?.isAccepted == true)
+        #expect(fusion.add(e(5.0, speed: 1.0), band: 1).first?.isAccepted == true)
     }
 
     @Test func swipeSeenByOneToneUsesTheOtherTonesTurnaround() {

@@ -266,6 +266,7 @@ public final class TutorialModel {
         case .recentInput: return "You just typed or touched the trackpad — keep your hands off for a second."
         case .noiseBurst: return "Lots of rustling noise (sleeves, rings?) — try again a bit more smoothly."
         case .oneSided: return "Only one speaker saw that — try nearer the middle of the laptop."
+        case .unclear: return "Push straight toward the middle of the screen, or swipe clearly across it."
         case .duringSwipes: return "That came right after swipes and looked like one — pause a moment before a push."
         case .sideways: return "That moved sideways — a push goes straight toward the screen; a swipe needs to cross the laptop briskly."
         case .accepted: return ""
