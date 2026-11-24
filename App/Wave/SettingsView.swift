@@ -16,6 +16,7 @@ struct SettingsView: View {
                 switch model.settingsTab {
                 case .gestures: GesturesPage(model: model)
                 case .apps: AppsPage(model: model)
+                case .letters: AirLettersPage(model: model)
                 case .hover: HoverPage(model: model)
                 case .general: SettingsPage("General", "How Wave runs on your Mac") { GeneralSettings(model: model) }
                 case .sound: SettingsPage("Sound", "The tone Wave plays and the speakers it uses") { SoundSettings(model: model) }
@@ -36,6 +37,7 @@ struct SettingsSidebar: View {
     private let items: [(AppModel.SettingsTab, String, String, Color)] = [
         (.gestures, "Gestures", "hand.wave.fill", .blue),
         (.apps, "Apps (smart mode)", "square.grid.2x2.fill", .teal),
+        (.letters, "Air letters", "scribble.variable", .purple),
         (.hover, "Volume & brightness", "dial.medium.fill", .pink),
         (.general, "General", "gearshape.fill", .gray),
         (.sound, "Sound", "speaker.wave.2.fill", .orange),
@@ -241,8 +243,26 @@ struct GesturesPage: View {
                         }
                     }
                 }
+                section("Walk away, come back") {
+                    VStack(spacing: 0) {
+                        ToggleRow(title: "Pause when you walk away, resume when you're back",
+                                  detail: "Your body is a big reflector: getting up and leaving is a long move away, then the room goes still. Coming back is moving in, typing, or unlocking.",
+                                  symbol: "figure.walk.departure", tint: .green, isOn: $model.prefs.presenceEnabled)
+                        if model.prefs.presenceEnabled {
+                            Divider().padding(.leading, 46)
+                            ToggleRow(title: "Also lock the screen",
+                                      detail: "Locks about 8 s after you leave. Coming back, unlock as usual and what was playing resumes.",
+                                      symbol: "lock.fill", tint: .gray, isOn: $model.prefs.presenceLocks)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
                 section("More gestures") {
                     VStack(spacing: 0) {
+                        ToggleRow(title: "Push twice: screenshot", detail: "Two pushes within a second save a screenshot of the whole screen to the Desktop. The first push's play/pause is undone.",
+                                  symbol: "camera.viewfinder", tint: .blue, isOn: $model.prefs.doublePushScreenshot)
+                        Divider().padding(.leading, 46)
                         ToggleRow(title: "Swipe left and right", detail: "Plays a separate tone on each speaker so Wave can tell left from right.",
                                   symbol: "hand.point.left.fill", tint: .teal, isOn: $model.prefs.swipesEnabled)
                         Divider().padding(.leading, 46)
@@ -603,6 +623,135 @@ struct AppsPage: View {
         guard panel.runModal() == .OK, let url = panel.url, let id = Bundle(url: url)?.bundleIdentifier else { return }
         if model.prefs.appModes[id] == nil && SmartModes.builtIn[id] == nil { model.prefs.appModes[id] = "default" }
         added.append(id)
+    }
+}
+
+// MARK: - Air letters
+
+struct AirLettersPage: View {
+    @Bindable var model: AppModel
+    @State private var newName = ""
+    @State private var newApp: (id: String, name: String)?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                PageHeader(title: "Air letters", subtitle: "Draw a letter in the air to open an app.")
+                VStack(spacing: 0) {
+                    ToggleRow(title: "Air letters (experimental)",
+                              detail: "While this is on, pushes and swipes wait 0.6 s (and until a drawing ends) in case they're the start of a letter.",
+                              symbol: "scribble.variable", tint: .purple, isOn: $model.prefs.airLettersEnabled)
+                }
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if !model.prefs.swipesEnabled {
+                    Label("Air letters need the two tones that swipes use — turn on Swipe left and right in Gestures.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.orange)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    GestureBadge(symbol: "lightbulb.fill", tint: .yellow, size: 28)
+                    Text("Draw big and brisk, about 20 cm in front of the screen, in one go (about a second). Wave hears left/right and toward/away but not up/down, so it doesn't know what a W looks like — it learns how *your* W sounds. Teach each letter 3 times, the way you'll draw it.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if let t = model.teaching {
+                    teachingCard(t)
+                } else {
+                    teachCard
+                }
+                if let r = model.lastAirResult {
+                    Label(r.text, systemImage: r.good ? "checkmark.circle.fill" : "questionmark.circle")
+                        .font(.system(size: 13)).foregroundStyle(r.good ? .green : .secondary)
+                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                        .background((r.good ? Color.green : .gray).opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                if !model.prefs.airLetters.isEmpty {
+                    Text("Your letters").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    VStack(spacing: 0) {
+                        ForEach(Array(model.prefs.airLetters.enumerated()), id: \.element.id) { i, letter in
+                            if i > 0 { Divider().padding(.leading, 60) }
+                            HStack(spacing: 12) {
+                                Text(letter.name).font(.system(size: 20, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white).frame(width: 36, height: 36)
+                                    .background(Color.purple.gradient, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: letter.appID) {
+                                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 24, height: 24)
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Opens \(letter.appName)").font(.system(size: 13))
+                                    Text("\(letter.examples.count) examples").font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Teach again") { model.startTeaching(name: letter.name, appID: letter.appID, appName: letter.appName) }
+                                    .controlSize(.small)
+                                Button(role: .destructive) { model.deleteLetter(letter.id) } label: { Image(systemName: "trash") }
+                                    .buttonStyle(.borderless)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                        }
+                    }
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(28)
+        }
+    }
+
+    private var teachCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Teach a letter").font(.system(size: 14, weight: .semibold))
+            HStack(spacing: 10) {
+                TextField("Letter", text: $newName)
+                    .textFieldStyle(.roundedBorder).frame(width: 80)
+                    .onChange(of: newName) { _, v in if v.count > 3 { newName = String(v.prefix(3)) } }
+                Text("opens").foregroundStyle(.secondary)
+                Button(newApp?.name ?? "Choose an app…") { chooseApp() }
+                Spacer()
+                Button("Start teaching") {
+                    guard let app = newApp else { return }
+                    model.startTeaching(name: newName.uppercased(), appID: app.id, appName: app.name)
+                    newName = ""
+                    newApp = nil
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || newApp == nil || !model.prefs.swipesEnabled)
+            }
+        }
+        .padding(14)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func teachingCard(_ t: (letter: AirLetter, count: Int)) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Text(t.letter.name).font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                    .frame(width: 64, height: 64).background(Color.purple.gradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Draw \(t.letter.name) in the air now").font(.system(size: 17, weight: .semibold))
+                    Text("\(t.count) of \(AppModel.examplesPerLetter) — pause a moment between tries").foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        ForEach(0..<AppModel.examplesPerLetter, id: \.self) { i in
+                            Image(systemName: i < t.count ? "checkmark.circle.fill" : "circle")
+                                .font(.title2).foregroundStyle(i < t.count ? .green : .secondary)
+                        }
+                    }
+                }
+                Spacer()
+                Button("Cancel") { model.cancelTeaching() }
+            }
+            if !model.prefs.airLettersEnabled {
+                Text("Air letters are off: turn them on above so Wave listens for drawings.").font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(16)
+        .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func chooseApp() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url, let id = Bundle(url: url)?.bundleIdentifier else { return }
+        newApp = (id, FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: ""))
     }
 }
 

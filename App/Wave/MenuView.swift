@@ -111,6 +111,9 @@ struct MenuView: View {
         if model.prefs.swipesEnabled {
             c += [info(.swipeLeft, model.effectiveAction(for: .swipeLeft)), info(.swipeRight, model.effectiveAction(for: .swipeRight))]
         }
+        if model.prefs.doublePushScreenshot {
+            c.append(GestureCardInfo(title: "Push twice", symbol: "camera.viewfinder", tint: .blue, action: "Screenshot", kind: nil))
+        }
         if m.pull != .none { c.append(info(.pull, m.pull)) }
         if model.prefs.grabEnabled { c.append(info(.grab, m.grab)) }
         if model.prefs.dialEnabled, !model.prefs.dialTargets.isEmpty {

@@ -48,6 +48,10 @@ public struct EngineOutput: Sendable {
     public var events: [GestureEvent] = []
     /// Hover interaction events, in order.
     public var controls: [ControlEvent] = []
+    /// Walk away / come back, in order.
+    public var presence: [PresenceEvent] = []
+    /// Air letters (drawings), in order.
+    public var air: [AirWriterEvent] = []
     /// Hover state right now.
     public var interactionPhase: InteractionDetector.Phase = .idle
     public var status: EngineStatus = .stopped
@@ -93,6 +97,8 @@ public final class SonarEngine: @unchecked Sendable {
     private var pendingFrames: [PipelineFrame] = []
     private var pendingEvents: [GestureEvent] = []
     private var pendingControls: [ControlEvent] = []
+    private var pendingPresence: [PresenceEvent] = []
+    private var pendingAir: [AirWriterEvent] = []
     private var interactionPhase: InteractionDetector.Phase = .idle
     private var savedRecording: URL?
     private var lastDelivery = 0.0
@@ -267,7 +273,7 @@ public final class SonarEngine: @unchecked Sendable {
             tickLive(now)
         }
         // Frames go to the UI at 30 Hz; a gesture or control goes out the moment it's detected.
-        if now - lastDelivery >= 1.0 / 30 || !pendingEvents.isEmpty || !pendingControls.isEmpty { deliver() }
+        if now - lastDelivery >= 1.0 / 30 || !pendingEvents.isEmpty || !pendingControls.isEmpty || !pendingPresence.isEmpty || !pendingAir.isEmpty { deliver() }
     }
 
     private func tickLive(_ now: Double) {
@@ -327,6 +333,8 @@ public final class SonarEngine: @unchecked Sendable {
         guard case .paused = status else {
             pendingEvents += out.events
             pendingControls += out.controls
+            pendingPresence += out.presence
+            pendingAir += out.air
             out.events.forEach { recorder?.noteEvent($0) }
             return
         }
@@ -411,6 +419,8 @@ public final class SonarEngine: @unchecked Sendable {
         out.frames = deliverAllFrames ? pendingFrames : Array(pendingFrames.suffix(1))
         out.events = pendingEvents
         out.controls = pendingControls
+        out.presence = pendingPresence
+        out.air = pendingAir
         out.interactionPhase = interactionPhase
         out.status = status
         out.bands = pipeline?.bands ?? []
@@ -425,6 +435,8 @@ public final class SonarEngine: @unchecked Sendable {
         pendingFrames = []
         pendingEvents = []
         pendingControls = []
+        pendingPresence = []
+        pendingAir = []
         savedRecording = nil
         onOutput(out)
     }

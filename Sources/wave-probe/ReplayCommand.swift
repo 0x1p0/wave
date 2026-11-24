@@ -59,6 +59,12 @@ struct ReplayCommand {
         let result = Replay.run(recording, pilots: pilots, detector: detector, interaction: interaction) { out in
             let t = out.frames.last?.time ?? 0
             for e in out.events where e.isAccepted { latencies.append(t - (e.reversal ?? e.end)) }
+            for p in out.presence { controlLines.append(String(format: "%8.2f s  🚶 presence: %@", t, String(describing: p))) }
+            for a in out.air {
+                if case .drawn(let d) = a {
+                    controlLines.append(String(format: "%8.2f s  ✍️ drawing %.2f–%.2f s (%.1f s)", t, d.start, d.end, d.duration))
+                }
+            }
             if out.interactionPhase != lastPhase {
                 lastPhase = out.interactionPhase
                 if lastPhase == .holding { controlLines.append(String(format: "%8.2f s  ✋ holding…", t)) }

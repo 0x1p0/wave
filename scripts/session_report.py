@@ -36,6 +36,8 @@ for st in log["steps"]:
     strong_rejects = [e for e in st["events"] if e["outcome"] != "accepted" and max(e["towardPeakDB"], e["awayPeakDB"]) >= 12]
     lines.append(f"## {st['title']}  ({st['start']:.1f}–{st['end']:.1f} s)")
     lines.append(f"Expected: {', '.join(expect) or 'nothing'} · correct {len(good)} · wrong {len(bad)} · rejected candidates {len(strong_rejects)}")
+    if st.get("expectNote"):
+        lines.append(f"Also expected: {st['expectNote']}")
     for e in st["events"]:
         mark = "✓" if e["outcome"] == "accepted" else "✗"
         verdict = "" if e["outcome"] != "accepted" else ("  OK" if e["kind"] in expect else "  <-- WRONG")
@@ -47,7 +49,12 @@ for st in log["steps"]:
     for c in st["controls"]:
         lines.append(f"    {c['time']:7.2f}  ⌁ {c['text']}")
     lines.append("")
-    summary.append((st["title"], expect, len(good), len(bad), [f"{e['kind']}→{e.get('action')}" for e in bad]))
+    notes = [c["text"] for c in st["controls"] if "LEFT" in c["text"] or "RETURNED" in c["text"]]
+    drawn = sum(1 for c in st["controls"] if "DRAWN" in c["text"])
+    if drawn:
+        notes.append(f"{drawn} drawing(s)")
+    shown_expect = expect + ([st["expectNote"]] if st.get("expectNote") else [])
+    summary.append((st["title"], shown_expect, len(good), len(bad), [f"{e['kind']}→{e.get('action')}" for e in bad] + notes))
 
     # Frames: before / during / after each accepted event and each strong rejected one.
     shown = sorted(acc + strong_rejects, key=lambda e: e["start"])[:16]

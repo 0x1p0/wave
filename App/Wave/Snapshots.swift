@@ -28,7 +28,7 @@ enum Snapshots {
                 render(view, size: size, appearance: NSAppearance(named: appearance)!,
                        to: dir.appendingPathComponent("\(name)-\(suffix).png"))
             }
-            for (name, tab) in [("gestures", AppModel.SettingsTab.gestures), ("apps", .apps), ("hover", .hover)] {
+            for (name, tab) in [("gestures", AppModel.SettingsTab.gestures), ("apps", .apps), ("letters", .letters), ("hover", .hover)] {
                 model.settingsTab = tab
                 render(AnyView(SettingsView(model: model)), size: NSSize(width: 880, height: 1150),
                        appearance: NSAppearance(named: appearance)!, to: dir.appendingPathComponent("settings-\(name)-\(suffix).png"))

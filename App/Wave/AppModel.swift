@@ -99,6 +99,7 @@ final class AppModel {
         }
         engine.setFrameDelivery(all: false)
         system.onChange = { [weak self] in self?.reevaluate() }
+        system.onUnlock = { [weak self] in self?.welcomeBack(how: "unlocked") }
     }
 
     // MARK: Lifecycle
@@ -234,6 +235,132 @@ final class AppModel {
         if mode == .normal {
             out.controls.forEach(handleControl)
             followHoverPhase(out.interactionPhase)
+            out.presence.forEach(handlePresence)
+            out.air.forEach(handleAir)
+        }
+    }
+
+    // MARK: Air letters
+
+    /// Teaching a letter: the next drawings become its examples.
+    private(set) var teaching: (letter: AirLetter, count: Int)?
+    /// The last drawing, for Settings ("Recognised W → opened Spotify").
+    private(set) var lastAirResult: (text: String, good: Bool, at: Date)?
+    @ObservationIgnored private var heldGestures: [GestureEvent.Kind] = []
+    @ObservationIgnored private var drawingInProgress = false
+    static let examplesPerLetter = 3
+
+    /// Air letters are listening (two tones needed), with something to recognise or teach.
+    var airLettersActive: Bool {
+        prefs.airLettersEnabled && prefs.swipesEnabled && (!prefs.airLetters.isEmpty || teaching != nil)
+    }
+
+    func startTeaching(name: String, appID: String, appName: String) {
+        teaching = (AirLetter(name: name, appID: appID, appName: appName), 0)
+        lastAirResult = nil
+    }
+
+    func cancelTeaching() { teaching = nil }
+
+    func deleteLetter(_ id: UUID) { prefs.airLetters.removeAll { $0.id == id } }
+
+    private func holdGesture(_ kind: GestureEvent.Kind) {
+        heldGestures.append(kind)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            MainActor.assumeIsolated { self?.releaseHeld() }
+        }
+    }
+
+    /// Acts on held gestures, unless a drawing is still going on (then they wait for it).
+    private func releaseHeld() {
+        guard !drawingInProgress, !heldGestures.isEmpty else { return }
+        let due = heldGestures
+        heldGestures = []
+        due.forEach(perform)
+    }
+
+    private func handleAir(_ event: AirWriterEvent) {
+        switch event {
+        case .drawingStarted:
+            if airLettersActive { drawingInProgress = true }
+        case .drawingAbandoned:
+            drawingInProgress = false
+            releaseHeld()
+        case .drawn(let drawing):
+            drawingInProgress = false
+            if var t = teaching {
+                heldGestures = []
+                t.letter.examples.append(drawing.shape)
+                t.count += 1
+                DetectionLog.shared.write(String(format: "AIR taught %@ example %d (%.1f s)", t.letter.name, t.count, drawing.duration))
+                if t.count >= Self.examplesPerLetter {
+                    prefs.airLetters.removeAll { $0.name == t.letter.name }
+                    prefs.airLetters.append(t.letter)
+                    teaching = nil
+                    lastAirResult = ("Learned \(t.letter.name) → \(t.letter.appName). Draw it to try.", true, Date())
+                } else {
+                    teaching = t
+                }
+                return
+            }
+            guard prefs.airLettersEnabled, !prefs.airLetters.isEmpty else { releaseHeld(); return }
+            if let m = AirWriter.match(drawing, in: prefs.airLetters) {
+                heldGestures = []
+                DetectionLog.shared.write(String(format: "AIR %@ (%.0f%%) → open %@", m.letter.name, m.score * 100, m.letter.appName))
+                lastAirResult = ("Recognised \(m.letter.name) (\(Int(m.score * 100)) %) → opened \(m.letter.appName)", true, Date())
+                open(m.letter)
+            } else {
+                DetectionLog.shared.write(String(format: "AIR drawing %.1f s matched no letter", drawing.duration))
+                lastAirResult = ("That drawing didn't match a letter", false, Date())
+                releaseHeld()
+            }
+        }
+    }
+
+    private func open(_ letter: AirLetter) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: letter.appID) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        lastGesture = (.push, .shortcut(letter.appName), Date())
+        gesturesToday += 1
+        if prefs.showHUD {
+            hud.show(symbol: "scribble.variable", title: "Opening \(letter.appName)", subtitle: "Air letter “\(letter.name)”", tint: .purple)
+        }
+    }
+
+    // MARK: Walk away / come back
+
+    /// Wave paused what was playing when you left, so it should resume it when you're back.
+    @ObservationIgnored private var pausedForAbsence = false
+    /// For the menu and Settings: when Wave last thought you left.
+    private(set) var awaySince: Date?
+
+    private func handlePresence(_ event: PresenceEvent) {
+        DetectionLog.shared.write("PRESENCE \(event)")
+        guard prefs.presenceEnabled else { return }
+        switch event {
+        case .left:
+            awaySince = Date()
+            if !mediaApps.isEmpty, case .done = ActionPerformer.perform(.media(.playPause)) {
+                pausedForAbsence = true
+            }
+            if prefs.presenceLocks { _ = ActionPerformer.perform(.system(.lockScreen)) }
+        case .returned:
+            welcomeBack(how: "came back")
+        case .maybeLeaving, .stillHere:
+            break
+        }
+    }
+
+    /// You're back (moved in, typed, or unlocked): resume what Wave paused when you left.
+    private func welcomeBack(how: String) {
+        guard awaySince != nil || pausedForAbsence else { return }
+        awaySince = nil
+        DetectionLog.shared.write("PRESENCE welcome back (\(how))\(pausedForAbsence ? ", resuming" : "")")
+        guard pausedForAbsence else { return }
+        pausedForAbsence = false
+        _ = ActionPerformer.perform(.media(.playPause))
+        if prefs.showHUD {
+            hud.show(symbol: "hand.wave.fill", title: "Welcome back", subtitle: "Resumed what was playing", tint: .green)
         }
     }
 
@@ -316,7 +443,14 @@ final class AppModel {
     private func handle(_ e: GestureEvent) {
         recentEvents.insert(e, at: 0)
         if recentEvents.count > 50 { recentEvents.removeLast() }
-        let acts = e.isAccepted && (mode == .normal || mode == .debugWindow)
+        var acts = e.isAccepted && (mode == .normal || mode == .debugWindow)
+        if acts && teaching != nil { acts = false }  // teaching a letter: gestures don't act
+        if acts && airLettersActive && [.push, .swipeLeft, .swipeRight].contains(e.kind) {
+            // It might be the start of a letter: wait a moment (and until any drawing ends) before acting.
+            holdGesture(e.kind)
+            DetectionLog.shared.write(e.summary + "  (held: could be an air letter)")
+            return
+        }
         DetectionLog.shared.write(e.summary + (acts ? "  → \(effectiveAction(for: e.kind).title)" : "")
                                   + (acts && smartPreset(for: e.kind) != nil ? " (smart, \(smartPlace ?? ""))" : "")
                                   + (mode == .normal ? "" : "  [\(mode)]"))
@@ -416,9 +550,38 @@ final class AppModel {
         smartPreset(for: .swipeLeft) ?? GesturePreset.all.first { $0.matches(prefs.mapping) }
     }
 
+    /// The last push and what it did, to recognise "push twice".
+    @ObservationIgnored private var lastPush: (at: Date, action: GestureAction)?
+
+    /// Push twice within this long: screenshot.
+    static let doublePushWindow: TimeInterval = 1.3
+
+    /// Second push in quick succession: take a screenshot, then undo what the first push did if it was a toggle
+    /// (play/pause), so the music isn't left paused. The first push acted immediately — no waiting.
+    private func performDoublePush(firstAction: GestureAction) {
+        lastPush = nil
+        let shot = GestureAction.system(.screenshot)
+        _ = ActionPerformer.perform(shot)
+        if firstAction == .media(.playPause) || firstAction == .key(.space) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { _ = ActionPerformer.perform(firstAction) }
+        }
+        lastGesture = (.push, shot, Date())
+        gesturesToday += 1
+        DetectionLog.shared.write("PUSH ×2 → Screenshot")
+        if prefs.showHUD {
+            hud.show(symbol: "camera.viewfinder", title: "Screenshot", subtitle: "Push twice · saved to the Desktop", tint: .blue)
+        }
+    }
+
     func perform(_ kind: GestureEvent.Kind) {
         if kind == .swipeLeft || kind == .swipeRight { refreshFrontSite() }
+        if kind == .push, prefs.doublePushScreenshot, let last = lastPush,
+           Date().timeIntervalSince(last.at) < Self.doublePushWindow {
+            performDoublePush(firstAction: last.action)
+            return
+        }
         let action = effectiveAction(for: kind)
+        if kind == .push { lastPush = (Date(), action) } else { lastPush = nil }
         lastGestureDate = Date()
         lastGesture = (kind, action, Date())
         let today = Calendar.current.startOfDay(for: Date())
@@ -573,7 +736,7 @@ final class AppModel {
         lastGesture = (.swipeLeft, effectiveAction(for: .swipeLeft), Date().addingTimeInterval(-2))
     }
 
-    enum SettingsTab: Hashable { case gestures, apps, hover, general, sound, calibration, advanced }
+    enum SettingsTab: Hashable { case gestures, apps, letters, hover, general, sound, calibration, advanced }
     /// Which Settings page is showing (the menu's "Change…" jumps to Gestures).
     var settingsTab: SettingsTab = .gestures
 

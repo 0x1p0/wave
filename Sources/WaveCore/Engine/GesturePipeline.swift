@@ -16,6 +16,10 @@ public struct PipelineOutput: Sendable {
     public var events: [GestureEvent] = []
     /// Hover interaction (ready, adjust, ended).
     public var controls: [ControlEvent] = []
+    /// Walk away / come back.
+    public var presence: [PresenceEvent] = []
+    /// Air letters: drawings (two-tone layout only).
+    public var air: [AirWriterEvent] = []
     /// Hover state after this chunk (for live views).
     public var interactionPhase: InteractionDetector.Phase = .idle
     /// Largest absolute sample in this chunk (for silence detection).
@@ -46,7 +50,7 @@ public final class GesturePipeline {
     }
     public var interactionConfig: InteractionConfig {
         get { interaction.config }
-        set { interaction.config = newValue }
+        set { interaction.config = newValue; presence.config = newValue.presence }
     }
 
     private let analyzer: SpectrumAnalyzer
@@ -58,6 +62,8 @@ public final class GesturePipeline {
     private let fusion = GestureFusion()
     private let trackers: [BasebandTracker]
     private let interaction = InteractionDetector()
+    private let presence = PresenceDetector()
+    private let airWriter = AirWriter()
     private var mono: [Float] = []
     /// Index of the lowest-frequency pilot (the strongest echo on this hardware).
     private var strongestBand: Int { bands.indices.min { bands[$0].pilotHz < bands[$1].pilotHz } ?? 0 }
@@ -128,6 +134,9 @@ public final class GesturePipeline {
         history = Array(repeating: [], count: bands.count)
         interaction.config = interactionConfig
         interaction.detector = detector
+        presence.config = interactionConfig.presence
+        presence.detector = detector
+        airWriter.detector = detector
         fusion.reversalFinder = { [unowned self] band, t in self.turnaround(band: band, around: t) }
     }
 
@@ -172,6 +181,8 @@ public final class GesturePipeline {
         detectors.forEach { $0.noteInput(at: t) }
         pullDetector.noteInput(at: t)
         interaction.noteInput(at: t)
+        presence.noteInput(at: t)
+        airWriter.noteInput(at: t)
     }
 
     /// Forget the still-hand baseline (after the pilot level or frequency changes).
@@ -249,6 +260,8 @@ public final class GesturePipeline {
                 pendingPull = nil
                 accept(pending.event, into: &out)
             }
+            if let p = presence.process(strongest) { out.presence.append(p) }
+            if layout.isStereo, let a = airWriter.process(features) { out.air.append(a) }
             let (controls, interactionEvents) = interaction.process(strongest, pilotHz: bands[strongestBand].pilotHz)
             out.controls += controls
             interactionEvents.forEach { accept($0, into: &out) }

@@ -13,6 +13,14 @@ struct WavePreferences: Codable, Equatable {
     /// Apps whose audio output doesn't count as "media playing" (bundle-ID prefixes).
     var ignoredMediaApps: [String] = []
     var showHUD = true
+    /// Two pushes within about a second take a screenshot (and undo the first push's play/pause).
+    var doublePushScreenshot = true
+    /// Walk away: pause what's playing (and lock the screen if you want); come back: resume it.
+    var presenceEnabled = true
+    var presenceLocks = false
+    /// Draw a letter in the air to open an app (experimental, needs swipes' two tones).
+    var airLettersEnabled = false
+    var airLetters: [AirLetter] = []
 
     /// Push-only mode: one tone on both speakers.
     var pushPilotHz = 19_000.0
@@ -63,6 +71,11 @@ struct WavePreferences: Codable, Equatable {
         mediaGraceMinutes = v(.mediaGraceMinutes, d.mediaGraceMinutes)
         ignoredMediaApps = v(.ignoredMediaApps, d.ignoredMediaApps)
         showHUD = v(.showHUD, d.showHUD)
+        doublePushScreenshot = v(.doublePushScreenshot, d.doublePushScreenshot)
+        presenceEnabled = v(.presenceEnabled, d.presenceEnabled)
+        presenceLocks = v(.presenceLocks, d.presenceLocks)
+        airLettersEnabled = v(.airLettersEnabled, d.airLettersEnabled)
+        airLetters = v(.airLetters, d.airLetters)
         pushPilotHz = v(.pushPilotHz, d.pushPilotHz)
         swipesEnabled = v(.swipesEnabled, d.swipesEnabled)
         leftPilotHz = v(.leftPilotHz, d.leftPilotHz)
@@ -106,7 +119,7 @@ struct WavePreferences: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
+        case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, doublePushScreenshot, presenceEnabled, presenceLocks, airLettersEnabled, airLetters, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
         case dialEnabled, dialVersion, smartMode, appModes, siteModes, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
     }
@@ -147,6 +160,7 @@ struct WavePreferences: Codable, Equatable {
         s.interaction.dialStep = dialStep / 100
         s.interaction.grabEnabled = grabEnabled
         s.interaction.pullEnabled = mapping.pull != .none
+        s.interaction.presence.enabled = presenceEnabled
         return s
     }
 }

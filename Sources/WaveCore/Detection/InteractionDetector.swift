@@ -5,6 +5,8 @@ import Foundation
 public struct InteractionConfig: Sendable, Codable, Equatable {
     public var dialEnabled = true
     public var grabEnabled = true
+    /// Walk away / come back.
+    public var presence = PresenceConfig()
     /// Pull does something on its own (it's mapped to an action). When it isn't, pulls only count while hovering
     /// (pull = down); otherwise they'd claim motions that belong to swipes and do nothing with them.
     public var pullEnabled = true
@@ -61,6 +63,7 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         func v<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { (try? c.decodeIfPresent(T.self, forKey: k)) ?? d }
         dialEnabled = v(.dialEnabled, dialEnabled); grabEnabled = v(.grabEnabled, grabEnabled)
         pullEnabled = v(.pullEnabled, pullEnabled)
+        presence = v(.presence, presence)
         dialTargets = v(.dialTargets, dialTargets); holdDelay = v(.holdDelay, holdDelay)
         holdStillDB = v(.holdStillDB, holdStillDB); hoverInputQuiet = v(.hoverInputQuiet, hoverInputQuiet)
         grabInputQuiet = v(.grabInputQuiet, grabInputQuiet); grabDecisionDelay = v(.grabDecisionDelay, grabDecisionDelay)
@@ -75,7 +78,7 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case dialEnabled, grabEnabled, pullEnabled, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
+        case dialEnabled, grabEnabled, pullEnabled, presence, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
         case dialStep, targetCycle, grabSnapDB, grabMaxDuration, grabCooldown, grabInputQuiet, grabDecisionDelay
         case grabUltrasonicOverAudibleDB, grabNeedsReady, settleWindow, afterGestureQuiet
     }

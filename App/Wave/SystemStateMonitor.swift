@@ -13,6 +13,8 @@ final class SystemStateMonitor {
     private(set) var sessionInactive = false
 
     var onChange: (() -> Void)?
+    /// Someone unlocked the screen (for "welcome back").
+    var onUnlock: (() -> Void)?
     private var tokens: [NSObjectProtocol] = []
     private var lidTimer: Timer?
 
@@ -29,7 +31,7 @@ final class SystemStateMonitor {
         let workspace = NSWorkspace.shared.notificationCenter
         let distributed = DistributedNotificationCenter.default()
         observe(distributed, "com.apple.screenIsLocked") { $0.screenLocked = true }
-        observe(distributed, "com.apple.screenIsUnlocked") { $0.screenLocked = false }
+        observe(distributed, "com.apple.screenIsUnlocked") { $0.screenLocked = false; $0.onUnlock?() }
         observe(workspace, NSWorkspace.screensDidSleepNotification.rawValue) { $0.displaysAsleep = true }
         observe(workspace, NSWorkspace.screensDidWakeNotification.rawValue) { $0.displaysAsleep = false }
         observe(workspace, NSWorkspace.willSleepNotification.rawValue) { $0.systemSleeping = true }

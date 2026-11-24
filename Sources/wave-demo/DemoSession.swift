@@ -20,11 +20,20 @@ final class DemoSession {
         var expect: [GestureEvent.Kind] = []
         /// Shows a text box to type into (the "type normally" step).
         var typing = false
+        /// Needs the two tones (air letters).
+        var stereo = false
+        /// Plays a chime when the step ends (you're away from the screen and can't see it).
+        var chime = false
+        /// What else should happen (presence / drawing), for the report.
+        var expectNote: String?
     }
+
+    /// `wave-demo --extras` (make session-extras): walk away / come back and air letters, instead of the gestures.
+    static var steps: [Step] { CommandLine.arguments.contains("--extras") ? extraSteps : gestureSteps }
 
     /// Every gesture, one labelled step each, so the report knows what you meant at every moment; then
     /// everyday use where nothing should fire.
-    static let steps: [Step] = [
+    static let gestureSteps: [Step] = [
         Step(id: "still", title: "Sit still",
              instruction: "Hands in your lap, away from the laptop. Don't type or touch the trackpad.",
              seconds: 8, lesson: .sonar),
@@ -56,6 +65,34 @@ final class DemoSession {
         Step(id: "taps", title: "Taps",
              instruction: "No gestures. Tap the desk next to the laptop a few times, then tap the palm rest (not the keys), then rest your palms on it.",
              seconds: 12, lesson: .sonar),
+    ]
+
+    /// Walk away / come back, then air letters. Nothing should *fire* while you shift around in your chair.
+    static let extraSteps: [Step] = [
+        Step(id: "still", title: "Sit still",
+             instruction: "Hands in your lap, away from the laptop. Don't type or touch the trackpad.",
+             seconds: 8, lesson: .sonar),
+        Step(id: "lean", title: "Shift around in your chair",
+             instruction: "Stay seated. Lean back and stretch, lean in to read the screen, turn to look at something, settle back. No gestures, no typing.",
+             seconds: 24, lesson: .sonar, expectNote: "no 'left'"),
+        Step(id: "leave", title: "Get up and walk away",
+             instruction: "Stand up and walk out of the room (or at least 3 metres away) and stay there. A chime tells you to come back (in 30 seconds).",
+             seconds: 30, lesson: .sonar, chime: true, expectNote: "left"),
+        Step(id: "return", title: "Come back",
+             instruction: "Walk back and sit down in front of the laptop. Don't touch the keyboard or trackpad yet.",
+             seconds: 12, lesson: .sonar, expectNote: "returned"),
+        Step(id: "draw-z", title: "Draw a Z × 3",
+             instruction: "Draw a big Z in the air, about 20 cm in front of the screen, in one go (about a second). Drop your hand, wait 3 seconds, again. Three times.",
+             seconds: 22, lesson: .swipe, stereo: true, expectNote: "3 drawings"),
+        Step(id: "draw-o", title: "Draw a circle × 3",
+             instruction: "Now a big circle, the same way: in one go, about a second, about 20 cm in front of the screen. Three times, 3 seconds apart.",
+             seconds: 22, lesson: .swipe, stereo: true, expectNote: "3 drawings"),
+        Step(id: "draw-z-again", title: "Z again × 3",
+             instruction: "The Z again, three times, the way you drew it before (this checks Wave can tell Z from a circle).",
+             seconds: 22, lesson: .swipe, stereo: true, expectNote: "3 drawings"),
+        Step(id: "swipe-both", title: "Swipes, both ways",
+             instruction: "Swipe left, then right, then left… with a short pause between. These must stay swipes, not drawings.",
+             seconds: 20, lesson: .swipe, expect: [.swipeLeft, .swipeRight]),
     ]
 
     /// Wave's saved preferences (the menu bar app's), as JSON.
@@ -238,7 +275,7 @@ final class DemoSession {
 
         for (i, step) in Self.steps.enumerated() {
             // Get ready (and switch to two tones for swipes).
-            let needsSwipes = step.expect.contains(.swipeLeft) || step.expect.contains(.swipeRight)
+            let needsSwipes = step.stereo || step.expect.contains(.swipeLeft) || step.expect.contains(.swipeRight)
             let wanted: PilotLayout = needsSwipes && !appLayout.isStereo ? .stereo(left: 18_750, right: 19_250) : appLayout
             if wanted != settings.layout {
                 settings.layout = wanted
@@ -253,7 +290,7 @@ final class DemoSession {
             tutorial.index = tutorial.lessons.firstIndex { $0.kind == step.lesson } ?? 0
             currentStep = i
             log.steps.append(StepLog(id: step.id, title: step.title, start: sessionTime,
-                                     expect: step.expect.map(\.rawValue)))
+                                     expect: step.expect.map(\.rawValue), expectNote: step.expectNote))
             engine.startRecording(directory: directory, label: step.id)
             phase = .running(step: i)
             let end = Date().addingTimeInterval(step.seconds)
@@ -266,6 +303,7 @@ final class DemoSession {
             log.steps[log.steps.count - 1].progress = tutorial.progress
             currentStep = nil
             writeLog()
+            if step.chime { NSSound(named: "Glass")?.play() }
         }
 
         guard !finishedCleanly else { return }
@@ -329,6 +367,30 @@ final class DemoSession {
             report(text, good: true, at: now)
             if let i = currentIndex { log.steps[i].controls.append(LoggedControl(time: now, text: text)) }
         }
+        for p in out.presence {
+            let text: String
+            switch p {
+            case .maybeLeaving: text = "🚶 maybe leaving"
+            case .stillHere: text = "🚶 still here"
+            case .left: text = "🚶 LEFT (would pause / lock)"
+            case .returned: text = "🚶 RETURNED (would resume)"
+            }
+            report(text, good: true, at: now)
+            if let i = currentIndex { log.steps[i].controls.append(LoggedControl(time: now, text: text)) }
+        }
+        for a in out.air {
+            let text: String
+            switch a {
+            case .drawingStarted: text = "✍️ drawing…"
+            case .drawn(let d): text = String(format: "✍️ DRAWN (%.1f s)", d.duration)
+            case .drawingAbandoned: text = "✍️ not a drawing"
+            }
+            report(text, good: true, at: now)
+            if let i = currentIndex {
+                log.steps[i].controls.append(LoggedControl(time: now, text: text))
+                if case .drawn(let d) = a { log.steps[i].drawings.append(d) }
+            }
+        }
         for e in out.events {
             let action = Self.actionName(for: Self.mappingKey(e.kind))
             let text = e.isAccepted
@@ -381,11 +443,14 @@ struct StepLog: Codable {
     var title: String
     var start: Double
     var expect: [String] = []
+    var expectNote: String?
     var end: Double = 0
     var progress = 0
     var events: [LoggedEvent] = []
     var controls: [LoggedControl] = []
     var phases: [LoggedControl] = []
+    /// Air-letter drawings (their shapes), to check Z vs circle offline.
+    var drawings: [AirDrawing] = []
 }
 
 struct LoggedEvent: Codable {
