@@ -25,7 +25,15 @@ struct WavePreferences: Codable, Equatable {
 
     var mapping = GestureMapping()
     /// Hold your hand still in front of the screen, then slide closer/farther to adjust.
-    var dialEnabled = true
+    /// Off by default: a hand held still and a hand that just paused look the same to the sonar, so it
+    /// opened by itself and missed real holds. Volume is reliable with the Volume swipe mode instead.
+    var dialEnabled = false
+    var dialVersion = 2
+    /// Swipes (and push) follow the app in front: tabs in browsers, tracks in music apps, slides in
+    /// presentation apps, pages in readers; your own gestures everywhere else.
+    var smartMode = true
+    /// Your choice per app: bundle ID → mode id (a `GesturePreset` id, or "default" for your own gestures).
+    var appModes: [String: String] = [:]
     /// What the dial adjusts; holding still switches to the next one.
     var dialTargets: [DialTarget] = [.volume, .brightness]
     /// Level change per push / pull while hovering (%).
@@ -35,8 +43,8 @@ struct WavePreferences: Codable, Equatable {
     var grabEnabled = false
     /// Version of the fist feature the saved `grabEnabled` was chosen for.
     var grabVersion = 2
-    /// Version of the swipe directions in `mapping` (2: swipe left = the tab/slide on the left).
-    var mappingVersion = 2
+    /// Version of `mapping` fixes (2: swipe left = the tab/slide on the left; 3: swipe modes leave push alone).
+    var mappingVersion = 3
     var calibration: CalibrationProfile?
     var hasCompletedOnboarding = false
     var debugRecordingsEnabled = false
@@ -70,7 +78,20 @@ struct WavePreferences: Codable, Equatable {
                 mapping.swipeRight = .system(next)
             }
         }
+        // Tapping a swipe mode used to change push too (Presenting set it to "next slide"), and app-specific
+        // modes (tabs, slides) ended up applying to every app. Undo both once; smart mode now handles apps.
+        if v(.mappingVersion, 1) < 3 {
+            if mapping.push == .system(.nextSlide) { mapping.push = .media(.playPause) }
+            let appOnly: Set<SystemAction> = [.nextTab, .previousTab, .nextSlide, .previousSlide]
+            if case .system(let a) = mapping.swipeLeft, appOnly.contains(a) {
+                mapping.swipeLeft = .system(.nextDesktop)
+                mapping.swipeRight = .system(.previousDesktop)
+            }
+        }
         dialEnabled = v(.dialEnabled, d.dialEnabled)
+        if v(.dialVersion, 1) < 2 { dialEnabled = false }  // switched off once; it can be turned back on
+        smartMode = v(.smartMode, d.smartMode)
+        appModes = v(.appModes, d.appModes)
         dialTargets = v(.dialTargets, d.dialTargets)
         dialStep = v(.dialStep, d.dialStep)
         grabEnabled = v(.grabEnabled, d.grabEnabled)
@@ -84,7 +105,7 @@ struct WavePreferences: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case enabled, sensitivity, onlyWhileMediaPlaying, mediaGraceMinutes, ignoredMediaApps, showHUD, pushPilotHz, swipesEnabled
         case leftPilotHz, rightPilotHz, levelDBFS, mapping, calibration, hasCompletedOnboarding, debugRecordingsEnabled
-        case dialEnabled, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
+        case dialEnabled, dialVersion, smartMode, appModes, dialTargets, dialStep, grabEnabled, grabVersion, mappingVersion
     }
 
     // MARK: Persistence
@@ -190,21 +211,38 @@ struct GesturePreset: Identifiable {
     let swipeRight: GestureAction
 
     static let all: [GesturePreset] = [
-        GesturePreset(id: "media", title: "Music & video", detail: "Push play/pause · swipe for next/previous track",
+        GesturePreset(id: "media", title: "Music & video", detail: "Swipe left for the previous track, right for the next",
                       symbol: "music.note", push: .media(.playPause), swipeLeft: .media(.previous), swipeRight: .media(.next)),
-        GesturePreset(id: "desktops", title: "Desktops", detail: "Push play/pause · swipe between desktops",
+        GesturePreset(id: "desktops", title: "Desktops", detail: "Swipe between desktops",
                       symbol: "rectangle.split.3x1", push: .media(.playPause), swipeLeft: .system(.nextDesktop),
                       swipeRight: .system(.previousDesktop)),
-        GesturePreset(id: "browser", title: "Browser tabs", detail: "Push play/pause · swipe left for the tab on the left, right for the right",
+        GesturePreset(id: "browser", title: "Browser tabs", detail: "Swipe left for the tab on the left, right for the one on the right",
                       symbol: "safari", push: .media(.playPause), swipeLeft: .system(.previousTab), swipeRight: .system(.nextTab)),
-        GesturePreset(id: "reading", title: "Reading", detail: "Push play/pause · swipe to page down/up",
+        GesturePreset(id: "reading", title: "Reading", detail: "Swipe left to page down, right to page up",
                       symbol: "book", push: .media(.playPause), swipeLeft: .system(.pageDown), swipeRight: .system(.pageUp)),
-        GesturePreset(id: "slides", title: "Presenting", detail: "Push for the next slide · swipe right for next, left for back",
+        GesturePreset(id: "slides", title: "Presenting", detail: "Swipe right for the next slide, left to go back",
                       symbol: "play.rectangle", push: .system(.nextSlide), swipeLeft: .system(.previousSlide),
                       swipeRight: .system(.nextSlide)),
-        GesturePreset(id: "youtube", title: "YouTube", detail: "Push play/pause · swipe to skip ±10 s",
+        GesturePreset(id: "volume", title: "Volume", detail: "Swipe right louder, left quieter",
+                      symbol: "speaker.wave.2.fill", push: .media(.playPause), swipeLeft: .system(.volumeDown),
+                      swipeRight: .system(.volumeUp)),
+        GesturePreset(id: "brightness", title: "Brightness", detail: "Swipe right brighter, left dimmer",
+                      symbol: "sun.max.fill", push: .media(.playPause), swipeLeft: .system(.brightnessDown),
+                      swipeRight: .system(.brightnessUp)),
+        GesturePreset(id: "youtube", title: "YouTube", detail: "Swipe left back 10 s, right forward 10 s",
                       symbol: "play.tv", push: .media(.playPause), swipeLeft: .key(.youTubeBack10), swipeRight: .key(.youTubeForward10)),
     ]
+
+    static func named(_ id: String) -> GesturePreset? { all.first { $0.id == id } }
+
+    func action(for kind: GestureEvent.Kind) -> GestureAction? {
+        switch kind {
+        case .push: return push
+        case .swipeLeft: return swipeLeft
+        case .swipeRight: return swipeRight
+        default: return nil
+        }
+    }
 
     /// One word for tight spaces (the menu).
     var shortTitle: String {
@@ -215,15 +253,41 @@ struct GesturePreset: Identifiable {
         case "reading": return "Pages"
         case "slides": return "Slides"
         case "youtube": return "±10 s"
+        case "volume": return "Volume"
+        case "brightness": return "Light"
         default: return title
         }
     }
 
-    func matches(_ m: GestureMapping) -> Bool { m.push == push && m.swipeLeft == swipeLeft && m.swipeRight == swipeRight }
+    /// Swipe modes only change swipes; push stays whatever you chose.
+    func matches(_ m: GestureMapping) -> Bool { m.swipeLeft == swipeLeft && m.swipeRight == swipeRight }
 
     func apply(to m: inout GestureMapping) {
-        m.push = push
         m.swipeLeft = swipeLeft
         m.swipeRight = swipeRight
+    }
+}
+
+/// Smart mode: which swipe mode each kind of app gets unless you choose otherwise.
+enum SmartModes {
+    static let builtIn: [String: String] = [
+        // Browsers: tabs
+        "com.apple.Safari": "browser", "com.apple.SafariTechnologyPreview": "browser", "com.google.Chrome": "browser",
+        "com.google.Chrome.canary": "browser", "com.brave.Browser": "browser", "org.mozilla.firefox": "browser",
+        "company.thebrowser.Browser": "browser", "com.microsoft.edgemac": "browser", "com.operasoftware.Opera": "browser",
+        "com.vivaldi.Vivaldi": "browser", "app.zen-browser.zen": "browser", "org.chromium.Chromium": "browser",
+        // Music and video: tracks
+        "com.spotify.client": "media", "com.apple.Music": "media", "com.apple.TV": "media", "com.apple.podcasts": "media",
+        "org.videolan.vlc": "media", "com.colliderli.iina": "media", "com.apple.QuickTimePlayerX": "media",
+        // Presentations: slides
+        "com.apple.iWork.Keynote": "slides", "com.microsoft.Powerpoint": "slides",
+        // Reading: pages
+        "com.apple.Preview": "reading", "com.apple.iBooksX": "reading", "com.readdle.PDFExpert-Mac": "reading",
+    ]
+
+    /// The mode id for an app: your choice, else the built-in one, else nil (your own gestures).
+    static func mode(for bundleID: String, overrides: [String: String]) -> String? {
+        let id = overrides[bundleID] ?? builtIn[bundleID]
+        return id == "default" ? nil : id
     }
 }

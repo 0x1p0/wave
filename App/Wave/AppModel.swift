@@ -105,6 +105,7 @@ final class AppModel {
     func launch() {
         readSpeakers()
         pollMedia()
+        followFrontApp()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
@@ -314,14 +315,65 @@ final class AppModel {
         recentEvents.insert(e, at: 0)
         if recentEvents.count > 50 { recentEvents.removeLast() }
         let acts = e.isAccepted && (mode == .normal || mode == .debugWindow)
-        DetectionLog.shared.write(e.summary + (acts ? "  → \(prefs.mapping[e.kind].title)" : "")
+        DetectionLog.shared.write(e.summary + (acts ? "  → \(effectiveAction(for: e.kind).title)" : "")
+                                  + (acts && smartPreset(for: e.kind) != nil ? " (smart, \(frontApp?.name ?? ""))" : "")
                                   + (mode == .normal ? "" : "  [\(mode)]"))
         guard acts else { return }
         perform(e.kind)
     }
 
+    // MARK: Smart mode: swipes follow the app you're in
+
+    /// The app you're using: the last one in front that isn't Wave.
+    private(set) var frontApp: (id: String, name: String)?
+    @ObservationIgnored private var frontAppObserver: NSObjectProtocol?
+
+    private func followFrontApp() {
+        func take(_ app: NSRunningApplication?) {
+            guard let app, let id = app.bundleIdentifier, id != Bundle.main.bundleIdentifier else { return }
+            frontApp = (id, app.localizedName ?? id)
+        }
+        take(NSWorkspace.shared.frontmostApplication)
+        frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            MainActor.assumeIsolated {
+                guard let self, let app, let id = app.bundleIdentifier, id != Bundle.main.bundleIdentifier else { return }
+                self.frontApp = (id, app.localizedName ?? id)
+            }
+        }
+    }
+
+    /// The swipe mode smart mode picks for the app in front (nil: your own gestures).
+    func smartPreset(for kind: GestureEvent.Kind? = nil) -> GesturePreset? {
+        if let kind, kind != .swipeLeft && kind != .swipeRight { return nil }  // smart mode only changes swipes
+        guard prefs.smartMode, let app = frontApp,
+              let id = SmartModes.mode(for: app.id, overrides: prefs.appModes) else { return nil }
+        return GesturePreset.named(id)
+    }
+
+    /// What a gesture does right now, in the app you're in.
+    func effectiveAction(for kind: GestureEvent.Kind) -> GestureAction {
+        smartPreset(for: kind)?.action(for: kind) ?? prefs.mapping[kind]
+    }
+
+    /// Sets the swipe mode for the app in front (smart mode) or for everywhere (otherwise).
+    func chooseSwipeMode(_ preset: GesturePreset) {
+        if prefs.smartMode, let app = frontApp {
+            prefs.appModes[app.id] = preset.id
+        } else {
+            preset.apply(to: &prefs.mapping)
+        }
+    }
+
+    /// The swipe mode in use right now (nil when your own swipes don't match any mode).
+    var currentSwipeMode: GesturePreset? {
+        smartPreset(for: .swipeLeft) ?? GesturePreset.all.first { $0.matches(prefs.mapping) }
+    }
+
     func perform(_ kind: GestureEvent.Kind) {
-        let action = prefs.mapping[kind]
+        let action = effectiveAction(for: kind)
         lastGestureDate = Date()
         lastGesture = (kind, action, Date())
         let today = Calendar.current.startOfDay(for: Date())
@@ -330,7 +382,8 @@ final class AppModel {
         switch ActionPerformer.perform(action) {
         case .done:
             if prefs.showHUD, action != .none {
-                hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title, tint: kind.tint)
+                let place = smartPreset(for: kind) != nil ? " · \(frontApp?.name ?? "")" : ""
+                hud.show(symbol: action.symbol, title: action.title, subtitle: kind.title + place, tint: kind.tint)
             }
         case .level(let level):
             if prefs.showHUD {
@@ -465,9 +518,12 @@ final class AppModel {
     /// Plausible state for UI snapshots (a recent gesture), without listening.
     func prepareForSnapshot() {
         lastGesture = (.swipeLeft, prefs.mapping.swipeLeft, Date().addingTimeInterval(-2))
+        if let brave = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.brave.Browser") {
+            frontApp = ("com.brave.Browser", FileManager.default.displayName(atPath: brave.path).replacingOccurrences(of: ".app", with: ""))
+        }
     }
 
-    enum SettingsTab: Hashable { case gestures, hover, general, sound, calibration, advanced }
+    enum SettingsTab: Hashable { case gestures, apps, hover, general, sound, calibration, advanced }
     /// Which Settings page is showing (the menu's "Change…" jumps to Gestures).
     var settingsTab: SettingsTab = .gestures
 

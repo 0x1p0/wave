@@ -59,6 +59,10 @@ public struct FusionConfig: Sendable, Codable, Equatable {
     /// A swipe only one tone reported still counts if that tone peaked this high and the other tone's echo shows
     /// it turning around (toward → away) a swipe-like time earlier or later. Weak swipes often reach only one tone.
     public var oneToneSwipeDB: Float = 10
+    /// After a swipe, a push-shaped motion without a clear left/right timing is taken as part of the swiping
+    /// (ignored) for this long; each such motion extends it. Measured: a run of back-and-forth swipes produced
+    /// 4 'pushes' with 0 / ±11 ms timing, which played and paused the music.
+    public var swipeStreak: Double = 2.5
 
     /// Which measured swipe/push window these values come from (2 = camera session, lag centre 0).
     public var windowVersion = 2
@@ -81,6 +85,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
         swipeMinPeakDB = v(.swipeMinPeakDB, swipeMinPeakDB)
         minPushSpeed = v(.minPushSpeed, minPushSpeed)
         oneToneSwipeDB = v(.oneToneSwipeDB, oneToneSwipeDB)
+        swipeStreak = v(.swipeStreak, swipeStreak)
         // Settings saved before the camera-measured window (v2) used a wider cut-off that turned swipes into
         // pushes. Use the measured defaults instead.
         if windowVersion < 2 {
@@ -95,7 +100,7 @@ public struct FusionConfig: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case lagCenter, minSwipeLag, softSwipeLag, lateralSpeed, maxPairGap, pairTimeout, invertSwipeDirection, oneSidedPushDB, swipeMinPeakDB
-        case minPushSpeed, oneToneSwipeDB, windowVersion
+        case minPushSpeed, oneToneSwipeDB, windowVersion, swipeStreak
     }
 
     /// What a lag (right reversal − left reversal) means for a motion with this radial speed.

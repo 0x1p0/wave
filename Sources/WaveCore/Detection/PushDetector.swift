@@ -22,6 +22,9 @@ public struct GestureEvent: Sendable, Codable, Identifiable, Equatable {
         case oneSided = "seen by one speaker only"
         /// Two tones: no clear left/right timing, but too little motion toward the screen for a push.
         case sideways = "sideways, not a push"
+        /// Push-shaped with no clear left/right timing, in the middle of a run of swipes: a swipe that passed the
+        /// middle of the laptop, not a push.
+        case duringSwipes = "during swipes, not a push"
     }
 
     public var id = UUID()

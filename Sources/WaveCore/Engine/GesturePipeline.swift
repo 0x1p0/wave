@@ -64,6 +64,8 @@ public final class GesturePipeline {
     private var spectrum = [Float]()
     private let audible: AudibleLevel
     private var lastAcceptedEnd = -Double.infinity
+    /// Until when push-shaped motions count as part of a run of swipes.
+    private var swipeStreakUntil = -Double.infinity
     private var claimedUntil = -Double.infinity
     /// Each tone's recent toward/away (last 1.5 s), to find a tone's turn-around when only the other tone
     /// produced an event.
@@ -287,6 +289,16 @@ public final class GesturePipeline {
     }
 
     private func deliver(_ event: GestureEvent, into out: inout PipelineOutput) {
+        var event = event
+        if layout.isStereo, event.isAccepted {
+            if event.kind == .swipeLeft || event.kind == .swipeRight {
+                swipeStreakUntil = event.end + fusion.config.swipeStreak
+            } else if event.kind == .push, event.end < swipeStreakUntil {
+                // In a run of swipes, a push without a clear left/right timing is a swipe that passed the middle.
+                event.outcome = .duringSwipes
+                swipeStreakUntil = event.end + fusion.config.swipeStreak
+            }
+        }
         if event.isAccepted {
             // Several pilots may see the same push: keep the first.
             guard event.end - lastAcceptedEnd > 0.3 else { return }

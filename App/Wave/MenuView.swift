@@ -47,12 +47,28 @@ struct MenuView: View {
 
     private var swipeModes: some View {
         VStack(alignment: .leading, spacing: 7) {
-            SectionTitle("Swipes switch")
             HStack(spacing: 6) {
+                if model.prefs.smartMode, let app = model.frontApp {
+                    SectionTitle("Swipes in \(app.name)")
+                    Text(model.smartPreset(for: .swipeLeft) == nil ? "your gestures" : "smart")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.18), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
+                } else {
+                    SectionTitle("Swipes switch")
+                }
+                Spacer()
+                Toggle("Smart", isOn: $model.prefs.smartMode)
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .font(.system(size: 10.5))
+                    .help("Smart mode: swipes follow the app you're in — tabs in browsers, tracks in music apps, slides in Keynote")
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                 ForEach(GesturePreset.all) { preset in
-                    let on = preset.matches(model.prefs.mapping)
+                    let on = model.currentSwipeMode?.id == preset.id
                     Button {
-                        withAnimation(.snappy(duration: 0.25)) { preset.apply(to: &model.prefs.mapping) }
+                        withAnimation(.snappy(duration: 0.25)) { model.chooseSwipeMode(preset) }
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: preset.symbol).font(.system(size: 14, weight: .semibold))
@@ -92,7 +108,9 @@ struct MenuView: View {
     private var chips: [GestureCardInfo] {
         let m = model.prefs.mapping
         var c = [info(.push, m.push)]
-        if model.prefs.swipesEnabled { c += [info(.swipeLeft, m.swipeLeft), info(.swipeRight, m.swipeRight)] }
+        if model.prefs.swipesEnabled {
+            c += [info(.swipeLeft, model.effectiveAction(for: .swipeLeft)), info(.swipeRight, model.effectiveAction(for: .swipeRight))]
+        }
         if m.pull != .none { c.append(info(.pull, m.pull)) }
         if model.prefs.grabEnabled { c.append(info(.grab, m.grab)) }
         if model.prefs.dialEnabled, !model.prefs.dialTargets.isEmpty {

@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 import WaveCore
 
 struct SettingsView: View {
@@ -14,6 +15,7 @@ struct SettingsView: View {
             Group {
                 switch model.settingsTab {
                 case .gestures: GesturesPage(model: model)
+                case .apps: AppsPage(model: model)
                 case .hover: HoverPage(model: model)
                 case .general: SettingsPage("General", "How Wave runs on your Mac") { GeneralSettings(model: model) }
                 case .sound: SettingsPage("Sound", "The tone Wave plays and the speakers it uses") { SoundSettings(model: model) }
@@ -33,6 +35,7 @@ struct SettingsSidebar: View {
 
     private let items: [(AppModel.SettingsTab, String, String, Color)] = [
         (.gestures, "Gestures", "hand.wave.fill", .blue),
+        (.apps, "Apps (smart mode)", "square.grid.2x2.fill", .teal),
         (.hover, "Volume & brightness", "dial.medium.fill", .pink),
         (.general, "General", "gearshape.fill", .gray),
         (.sound, "Sound", "speaker.wave.2.fill", .orange),
@@ -280,7 +283,7 @@ struct GesturesPage: View {
     }
 
     private var presets: some View {
-        section("One-click setups") {
+        section(model.prefs.smartMode ? "Swipes in every other app (smart mode handles browsers, music, slides)" : "What swipes do") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(GesturePreset.all) { preset in
                     let on = preset.matches(model.prefs.mapping)
@@ -484,6 +487,95 @@ struct ToggleRow: View {
     }
 }
 
+// MARK: - Apps (smart mode)
+
+struct AppsPage: View {
+    @Bindable var model: AppModel
+    @State private var added: [String] = []
+
+    private var apps: [(id: String, name: String, url: URL)] {
+        let ids = Set(SmartModes.builtIn.keys).union(model.prefs.appModes.keys).union(added)
+        return ids.compactMap { id in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return nil }
+            let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+            return (id, name, url)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                PageHeader(title: "Apps", subtitle: "Swipes do the right thing in each app: tabs in your browser, tracks in your music app, slides in Keynote.")
+                VStack(spacing: 0) {
+                    ToggleRow(title: "Smart mode", detail: "Swipes follow the app you're in. Push always does the same thing everywhere.",
+                              symbol: "sparkles", tint: .teal, isOn: $model.prefs.smartMode)
+                }
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if model.prefs.smartMode {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Swipes in each app").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                        VStack(spacing: 0) {
+                            ForEach(Array(apps.enumerated()), id: \.element.id) { i, app in
+                                if i > 0 { Divider().padding(.leading, 52) }
+                                HStack(spacing: 12) {
+                                    Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
+                                        .resizable().frame(width: 28, height: 28)
+                                    Text(app.name).font(.system(size: 13))
+                                    if model.frontApp?.id == app.id {
+                                        Text("in front").font(.system(size: 10, weight: .semibold))
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(Color.green.opacity(0.18), in: Capsule()).foregroundStyle(.green)
+                                    }
+                                    Spacer()
+                                    Picker("", selection: modeBinding(app.id)) {
+                                        Text("My gestures").tag("default")
+                                        Divider()
+                                        ForEach(GesturePreset.all) { Label($0.title, systemImage: $0.symbol).tag($0.id) }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 180)
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                            }
+                            Divider()
+                            HStack(spacing: 12) {
+                                GestureBadge(symbol: "macwindow", tint: .gray, size: 28)
+                                Text("Every other app").font(.system(size: 13))
+                                Spacer()
+                                Text(model.prefs.mapping.swipeLeft.shortTitle + " / " + model.prefs.mapping.swipeRight.shortTitle)
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                                Button("Change…") { model.settingsTab = .gestures }.buttonStyle(.link).font(.system(size: 12))
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                        }
+                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        Button { addApp() } label: { Label("Add an app…", systemImage: "plus") }
+                    }
+                }
+            }
+            .padding(28)
+        }
+    }
+
+    private func modeBinding(_ id: String) -> Binding<String> {
+        Binding(
+            get: { model.prefs.appModes[id] ?? SmartModes.builtIn[id] ?? "default" },
+            set: { model.prefs.appModes[id] = $0 })
+    }
+
+    private func addApp() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+        guard panel.runModal() == .OK, let url = panel.url, let id = Bundle(url: url)?.bundleIdentifier else { return }
+        if model.prefs.appModes[id] == nil && SmartModes.builtIn[id] == nil { model.prefs.appModes[id] = "default" }
+        added.append(id)
+    }
+}
+
 // MARK: - Volume & brightness
 
 struct HoverPage: View {
@@ -492,7 +584,25 @@ struct HoverPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                PageHeader(title: "Volume & brightness", subtitle: "Hold your hand up to the screen, then push or pull to change the level.")
+                PageHeader(title: "Volume & brightness", subtitle: "Two ways to change them without touching your Mac.")
+                HStack(alignment: .top, spacing: 12) {
+                    GestureBadge(symbol: "speaker.wave.2.fill", tint: .teal, size: 34)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Recommended: swipe for volume").font(.system(size: 14, weight: .semibold))
+                        Text("Pick Volume (or Brightness) in the menu's swipe modes — swipe right louder, left quieter — then switch back. Swipes are Wave's most reliable gesture.")
+                            .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button("Use Volume swipes here") { if let p = GesturePreset.named("volume") { model.chooseSwipeMode(p) } }
+                            Button("Brightness swipes") { if let p = GesturePreset.named("brightness") { model.chooseSwipeMode(p) } }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                .padding(14)
+                .background(Color.teal.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Text("Or: hover (experimental)").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Hold your hand up to the screen, then push or pull. It's off by default: to the sonar, a hand held still and a hand that just paused look the same, so it can open when you don't mean it and miss when you do.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(alignment: .top, spacing: 18) {
                     GestureIllustration(kind: nil, hover: true)
                         .frame(width: 180, height: 130)
