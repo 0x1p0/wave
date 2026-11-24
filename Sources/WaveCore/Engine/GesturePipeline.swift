@@ -62,6 +62,7 @@ public final class GesturePipeline {
     /// Index of the lowest-frequency pilot (the strongest echo on this hardware).
     private var strongestBand: Int { bands.indices.min { bands[$0].pilotHz < bands[$1].pilotHz } ?? 0 }
     private var spectrum = [Float]()
+    private let audible: AudibleLevel
     private var lastAcceptedEnd = -Double.infinity
     private var claimedUntil = -Double.infinity
     /// Pulls wait briefly: if a push overlaps them (its toward phase was the pull's return), the push wins.
@@ -93,6 +94,7 @@ public final class GesturePipeline {
         slicer = FrameSlicer(channels: channels, fftSize: fftSize, hop: hop)
         let binWidth = sampleRate / Double(Self.fftSize(for: sampleRate))
         let frameRate = sampleRate / Double(hop)
+        audible = AudibleLevel(bins: Int(1000 / binWidth)...Int(4000 / binWidth), frameRate: frameRate)
         switch layout {
         case .single(let f):
             bands = [PilotBand(pilotHz: f, binWidth: binWidth)]
@@ -139,6 +141,7 @@ public final class GesturePipeline {
         fusion.reset()
         trackers.forEach { $0.reset() }
         interaction.reset()
+        audible.reset()
     }
 
     public func process(_ samples: [[Float]]) -> PipelineOutput {
@@ -160,6 +163,7 @@ public final class GesturePipeline {
         slicer.push(samples) { windows in
             analyzer.averagePowerSpectrum(windows, into: &spectrum)
             let t = Double(slicer.samplesConsumed) / sampleRate
+            let audibleDB = audible.process(spectrum)
             var features: [BandFeatures] = []
             features.reserveCapacity(bands.count)
             spectrum.withUnsafeBufferPointer { spec in
@@ -169,6 +173,7 @@ public final class GesturePipeline {
                     f.microDB = bb.microDB
                     f.displacement = bb.displacement
                     f.basebandVelocity = bb.velocity
+                    f.audibleDB = audibleDB
                     features.append(f)
                     guard let event = detectors[i].process(f) else { continue }
                     if layout.isStereo {
@@ -274,5 +279,32 @@ public final class GesturePipeline {
             }
         }
         return column
+    }
+}
+
+/// Level of the audible band (1–4 kHz) over its own running level, in dB. Follows the room (speech, music)
+/// over about a second; short bursts barely move it.
+final class AudibleLevel {
+    let bins: ClosedRange<Int>
+    private let alpha: Float
+    private var baseline: Float?
+
+    init(bins: ClosedRange<Int>, frameRate: Double) {
+        self.bins = bins
+        alpha = Float(1 / (1.0 * frameRate))
+    }
+
+    func reset() { baseline = nil }
+
+    func process(_ spectrum: [Float]) -> Float {
+        guard bins.upperBound < spectrum.count else { return 0 }
+        var sum: Float = 0
+        for k in bins { sum += spectrum[k] }
+        let level = 10 * log10(sum / Float(bins.count) + 1e-20)
+        guard let b = baseline else { baseline = level; return 0 }
+        let over = level - b
+        // Bursts (more than 6 dB up) are let in 20× more slowly, so a knock doesn't raise its own baseline.
+        baseline = b + over * (over > 6 ? alpha / 20 : alpha)
+        return over
     }
 }

@@ -24,6 +24,9 @@ public struct BandFeatures: Sendable, Equatable, Codable {
     public var displacement: Float = 0
     /// Phase tracker: smoothed hand speed (m/s, + toward).
     public var basebandVelocity: Float = 0
+    /// Audible range (1–4 kHz) over its running level, dB (same for every pilot). Knocks and taps on a table
+    /// are loud here; a fist's snap is nearly silent here while loud in the ultrasound.
+    public var audibleDB: Float = 0
 
     public init(time: Double, pilotDB: Float, towardDB: Float, awayDB: Float, referenceDB: Float,
                 velocity: Float, reflectionDB: Float, quiet: Bool) {

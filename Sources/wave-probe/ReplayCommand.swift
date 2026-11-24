@@ -41,7 +41,7 @@ struct ReplayCommand {
         if let path = options.csv {
             FileManager.default.createFile(atPath: path, contents: nil)
             csv = FileHandle(forWritingAtPath: path)
-            csv?.write(Data("time,pilot_db,toward_db,away_db,reference_db,velocity,reflection_db,quiet,micro_db,displacement_mm,phase_velocity\n".utf8))
+            csv?.write(Data("time,pilot_db,toward_db,away_db,reference_db,velocity,reflection_db,quiet,micro_db,displacement_mm,phase_velocity,audible_db\n".utf8))
         }
         var controlLines: [String] = []
         var dial = 0.0
@@ -63,9 +63,9 @@ struct ReplayCommand {
             var rows = ""
             for frame in out.frames {
                 let f = frame.bands[0]
-                rows += String(format: "%.4f,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f,%d,%.2f,%.3f,%.4f\n",
+                rows += String(format: "%.4f,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f,%d,%.2f,%.3f,%.4f,%.2f\n",
                                f.time, f.pilotDB, f.towardDB, f.awayDB, f.referenceDB, f.velocity, f.reflectionDB, f.quiet ? 1 : 0,
-                               f.microDB, f.displacement * 1000, f.basebandVelocity)
+                               f.microDB, f.displacement * 1000, f.basebandVelocity, f.audibleDB)
             }
             csv.write(Data(rows.utf8))
         }

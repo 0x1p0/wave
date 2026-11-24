@@ -29,6 +29,10 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
     public var grabSnapDB: Float = 12
     /// …and this short (a longer broadband rise is rustling or a bump, not a fist).
     public var grabMaxDuration = 0.15
+    /// …and at least this much louder in the ultrasound than in the audible range (1–4 kHz). Fingers closing
+    /// onto the palm are nearly silent to the ear (measured +7…+22 dB ultrasound over audible); a tap or knock
+    /// on a table is loud to the ear too (−17…+4 dB).
+    public var grabUltrasonicOverAudibleDB: Float = 6
     /// Opening the hand again snaps too: ignore snaps for this long after a grab (and 0.8 s after the last one).
     public var grabCooldown = 1.8
     /// Typing and taps snap too. A grab needs no keyboard/trackpad input for this long before the snap…
@@ -51,11 +55,13 @@ public struct InteractionConfig: Sendable, Codable, Equatable {
         dialStep = v(.dialStep, dialStep); targetCycle = v(.targetCycle, targetCycle)
         grabSnapDB = v(.grabSnapDB, grabSnapDB); grabMaxDuration = v(.grabMaxDuration, grabMaxDuration)
         grabCooldown = v(.grabCooldown, grabCooldown)
+        grabUltrasonicOverAudibleDB = v(.grabUltrasonicOverAudibleDB, grabUltrasonicOverAudibleDB)
     }
 
     private enum CodingKeys: String, CodingKey {
         case dialEnabled, grabEnabled, dialTargets, holdDelay, holdStillDB, approachMarginDB, approachMinDuration, hoverInputQuiet
         case dialStep, targetCycle, grabSnapDB, grabMaxDuration, grabCooldown, grabInputQuiet, grabDecisionDelay
+        case grabUltrasonicOverAudibleDB
     }
 
     var anyEnabled: Bool { dialEnabled || grabEnabled }
@@ -96,7 +102,7 @@ public final class InteractionDetector {
     private var firstTime: Double?
 
     // Grab (snap) tracking, independent of the hover state.
-    private var snap: (start: Double, last: Double, peak: Float, toward: Float, away: Float)?
+    private var snap: (start: Double, last: Double, peak: Float, toward: Float, away: Float, audible: Float)?
     /// Finished snaps waiting a moment to make sure no keystroke came with them.
     private var pendingSnap: (start: Double, end: Double, peak: Float, toward: Float, away: Float)?
     private var snapsBlockedUntil = -Double.infinity
@@ -243,18 +249,21 @@ public final class InteractionDetector {
             if var s = snap {
                 s.last = t; s.peak = max(s.peak, f.referenceDB)
                 s.toward = max(s.toward, f.towardDB); s.away = max(s.away, f.awayDB)
+                s.audible = max(s.audible, f.audibleDB)
                 snap = s
             } else {
-                snap = (t, t, f.referenceDB, f.towardDB, f.awayDB)
+                snap = (t, t, f.referenceDB, f.towardDB, f.awayDB, f.audibleDB)
             }
         } else if var s = snap {
             if f.referenceDB >= level - 6 && t - s.start <= 1 {
                 s.last = t  // still ringing
+                s.audible = max(s.audible, f.audibleDB)
                 snap = s
             } else {
                 snap = nil
                 let end = s.last + max(frame, 0.005)
-                if end - s.start <= config.grabMaxDuration && s.start >= snapsBlockedUntil {
+                let quietToTheEar = s.peak - s.audible >= config.grabUltrasonicOverAudibleDB
+                if end - s.start <= config.grabMaxDuration && quietToTheEar && s.start >= snapsBlockedUntil {
                     pendingSnap = (s.start, end, s.peak, s.toward, s.away)
                 }
                 // Any snap (a grab, the hand opening, flapping) holds off the next grab for a moment.

@@ -25,6 +25,9 @@ struct DetectCommand {
         var saved: URL?
         var dialTotal = 0.0
         let tty = isatty(STDOUT_FILENO) != 0
+        /// Also print rejected candidates (✗). Useful when tuning; alarming in a guided capture, where they look
+        /// like detections although nothing happens.
+        var showRejected = true
 
         func handle(_ out: EngineOutput) {
             if out.status != lastStatus {
@@ -32,7 +35,7 @@ struct DetectCommand {
                 print("● \(out.status.text)" + (out.amplitudeDBFS.map { String(format: "  (pilot %.1f dBFS", $0) + (out.speakerGainDB.map { String(format: ", speakers %.1f dB)", $0) } ?? ")") } ?? ""))
                 lastStatus = out.status
             }
-            for e in out.events {
+            for e in out.events where showRejected || e.isAccepted {
                 clearMeter()
                 print(String(format: "%8.2f s  ", e.end) + e.summary)
             }

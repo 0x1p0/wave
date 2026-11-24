@@ -76,7 +76,7 @@ struct Arguments {
     var flags: Set<String> = []
     var positional: [String] = []
 
-    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "no-hover", "hold", "help"]
+    static let flagNames: Set<String> = ["skip-wave", "stereo", "ascii", "ignore-volume", "mute", "record", "accepted-only", "no-hover", "hold", "taps", "help"]
 
     init(_ args: [String]) throws {
         var i = 0
@@ -190,7 +190,10 @@ do {
 
     case "capture":
         // Guided recording of real gestures for tuning (quits/reopens the Wave app around it).
-        exitCode = await ensureMicrophoneAccess() ? await CaptureCommand().run() : 3
+        try args.checkKnown(["taps"])
+        var capture = CaptureCommand()
+        if args.flags.contains("taps") { capture.steps = CaptureCommand.tapSteps; capture.title = "Wave taps-vs-fists capture" }
+        exitCode = await ensureMicrophoneAccess() ? await capture.run() : 3
 
     case "frames":
         try args.checkKnown(["at", "out", "width"])

@@ -8,7 +8,7 @@ PROBE   := $(DERIVED)/Build/Products/Release/wave-probe
 # Harmless internal xcodebuild log line for Swift packages.
 QUIET   := grep -v 'IDERunDestination: Supported platforms' || true
 
-.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture tutorial session clean
+.PHONY: probe app-debug app install run cpu test devices speakers sweep sweep96 confirm live debug detect record replay demo demo-hold capture taps tutorial session clean
 
 probe:
 	@set -o pipefail; xcodebuild -scheme wave-probe -destination '$(DEST)' -derivedDataPath $(DERIVED) -configuration Release build -quiet 2>&1 | { $(QUIET); }
@@ -115,6 +115,10 @@ session:
 # Guided ~1 minute recording of your real gestures for tuning (quits and reopens the Wave app).
 capture: probe
 	$(PROBE) capture
+
+# Table/laptop taps next to real fists (~1 minute), to teach the grab detector the difference.
+taps: probe
+	$(PROBE) capture --taps
 
 # Synthetic hold demo: approach + hold, slide closer (dial up), pull away, approach + grab.
 demo-hold: probe app-debug

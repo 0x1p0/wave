@@ -20,13 +20,22 @@ struct InteractionTests {
         0.40 - 0.18 * SyntheticScene.ease(t, start: 1.0, duration: 0.35) - extra(t)
     }
 
-    /// `snaps`: broadband bursts (start, length) — the sound of fingers closing onto the palm, or a click.
+    /// `snaps`: (start, length) of the sound of fingers closing onto the palm — ultrasonic, nearly silent to
+    /// the ear. `knocks`: a tap on the table — broadband, loud to the ear as well.
     func run(_ reflectors: [SyntheticScene.Reflector], inputs: [Double] = [], snaps: [(Double, Double)] = [],
-             duration: Double = 8, interaction: InteractionConfig = InteractionConfig()) -> (events: [GestureEvent], controls: [ControlEvent]) {
+             knocks: [(Double, Double)] = [], duration: Double = 8,
+             interaction: InteractionConfig = InteractionConfig()) -> (events: [GestureEvent], controls: [ControlEvent]) {
         let scene = SyntheticScene(duration: duration)
         var x = scene.renderSingle(reflectors: reflectors)
         for (i, snap) in snaps.enumerated() {
-            let b = scene.burst(start: snap.0, length: snap.1, rms: 4e-4, seed: UInt64(7 + i))
+            // Three first differences tilt white noise ~50 dB toward the top of the band.
+            var b = scene.burst(start: snap.0, length: snap.1, rms: 1, seed: UInt64(7 + i))
+            for _ in 0..<3 { for k in stride(from: b.count - 1, to: 0, by: -1) { b[k] -= b[k - 1] } }
+            let rms = (b.reduce(Float(0)) { $0 + $1 * $1 } / Float(max(1, Int(snap.1 * SyntheticScene.sampleRate)))).squareRoot()
+            for k in x.indices { x[k] += b[k] * 4e-4 / max(rms, 1e-9) }
+        }
+        for (i, knock) in knocks.enumerated() {
+            let b = scene.burst(start: knock.0, length: knock.1, rms: 4e-4, seed: UInt64(70 + i))
             for k in x.indices { x[k] += b[k] }
         }
         let pipeline = GesturePipeline(sampleRate: SyntheticScene.sampleRate, channels: 1, layout: .single(19_000),
@@ -161,6 +170,12 @@ struct InteractionTests {
         // Close at 2.0 s, open at 3.0 s (snaps too), close again at 5.5 s.
         let r = run([palm { Self.hoverZ($0) }], snaps: [(2.0, 0.07), (3.0, 0.06), (5.5, 0.07)])
         #expect(accepted(r.events, .grab).map { ($0.start * 2).rounded() / 2 } == [2.0, 5.5])
+    }
+
+    @Test func aKnockOnTheTableIsNotAGrab() {
+        // Loud to the ear as well as in the ultrasound: a tap or knock, not fingers closing.
+        let r = run([palm { Self.hoverZ($0) }], knocks: [(2.0, 0.05), (4.0, 0.05)])
+        #expect(accepted(r.events, .grab).isEmpty)
     }
 
     @Test func longRustleOrTypingIsNotAGrab() {
